@@ -1,0 +1,11 @@
+{
+  "domain": "db_info",
+  "name": "DB Info",
+  "version": "0.1.0",
+  "documentation": "https://github.com/EiS94/db_info",
+  "requirements": ["aiohttp>=3.8.0"],
+  "dependencies": [],
+  "codeowners": ["@EiS94"],
+  "iot_class": "cloud_polling",
+  "config_flow": true
+}
