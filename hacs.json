@@ -1,0 +1,6 @@
+{
+  "name": "DB Info",
+  "render_readme": true,
+  "homeassistant": "2023.8.0",
+  "content_in_root": false
+}
