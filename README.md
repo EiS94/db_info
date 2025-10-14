@@ -124,3 +124,5 @@ Future updates will allow **manually entering coordinates** as origin or destina
 ---
 
 Enjoy using the integration! 🚆
+
+<a href="https://www.buymeacoffee.com/eis94" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
