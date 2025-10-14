@@ -1,0 +1,16 @@
+name: DB Info
+content_in_root: false
+domains:
+  - sensor
+homeassistant: "2023.8.0"
+render_readme: true
+zip_release: true
+filename: db_info
+description: Integration to get real time data for Deutsche Bahn (DB)
+tags:
+  - Deutsche Bahn
+  - DB
+  - public transport
+  - real time
+hacs:
+  type: integration
