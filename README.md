@@ -4,7 +4,7 @@
 
 This integration provides **five sensors per entry**, each showing the **upcoming public transport connections** between two locations – including **real-time updates**.  
 
-![Screenshot](/images/table_example.png)
+<img src="/images/table_example.png" alt="Table Example" width="400"/>
 
 > Note: It works **exclusively within the Deutsche Bahn (DB) network**.
 
@@ -20,7 +20,7 @@ You can use the following as both **origin** and **destination**:
 
 This allows you, for example, to retrieve real-time data from a **user’s current location** to their **home address**.
 
-![sensor_example](/images/sensor_example.png)
+<img src="/images/sensor_example.png" alt="Sensor Example" width="300"/>
 
 ---
 
@@ -37,7 +37,7 @@ Make sure the following custom cards are installed:
 
 #### 🖼️ Code
 
-![Lovelace Table Example](/images/table_example.png)
+<img src="/images/table_example.png" alt="Table Example" width="400"/>
 
 ```yaml
 type: custom:flex-table-card
