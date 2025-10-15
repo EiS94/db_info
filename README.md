@@ -1,8 +1,8 @@
-## 🚉 DB_Info – Public Transport with Real-Time Data
+## 🚉 DB Info – Public Transport with Real-Time Data
 
-### 📌 What is DB_Info?
+### 📌 What is DB Info?
 
-This integration provides **five sensors per entry**, each showing the **upcoming public transport connections** between two locations – including **real-time updates**.  
+This Home Assistant integration provides **five sensors per entry**, each showing the **upcoming public transport connections** between two locations – including **real-time updates**.  
 
 <img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/table_example.png" alt="Table Example" width="400"/>
 
