@@ -12,5 +12,7 @@ tags:
   - DB
   - public transport
   - real time
+  - train
+  - öpnv
 hacs:
   type: integration

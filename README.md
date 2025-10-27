@@ -42,7 +42,8 @@ Make sure the following custom cards are installed:
 ```yaml
 type: custom:flex-table-card
 entities:
-  include: sensor.<NAME_OF_SENSORS_WITH_WILDCARD>* # e.g. sensor.wu_hbf_max_morlock_stadion_verbindung_*
+  include: sensor.home_wu_hbf_verbindung_*
+sort_by: sort_time
 columns:
   - name: Start
     data: Departure
@@ -59,15 +60,23 @@ columns:
       ")[1]); if (isNaN(timeReal.getTime())) {
         time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
       } else if (time >= timeReal) {
-        '<div style="color:green">' + time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div>';
+        '<div style="color:green">' +
+        time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+        '</div>';
       } else {
         var delayMinutes = (timeReal - time) / (1000 * 60);
-        if (delayMinutes > 10) {
-          '<s><div style="color:grey">' + time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div></s>' +
-          '<div style="color:red">' + timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div>';
+        if (delayMinutes > 4) {
+          '<s><div style="color:grey">' +
+          time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+          '</div></s><div style="color:red">' +
+          timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+          '</div>';
         } else {
-          '<s><div style="color:grey">' + time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div></s>' +
-          '<div style="color:green">' + timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div>';
+          '<s><div style="color:grey">' +
+          time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+          '</div></s><div style="color:green">' +
+          timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+          '</div>';
         }
       }
   - name: Ankunft
@@ -81,17 +90,41 @@ columns:
       ")[1]); if (isNaN(timeReal.getTime())) {
         time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
       } else if (time >= timeReal) {
-        '<div style="color:green">' + time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div>';
+        '<div style="color:green">' +
+        time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+        '</div>';
       } else {
         var delayMinutes = (timeReal - time) / (1000 * 60);
-        if (delayMinutes > 10) {
-          '<s><div style="color:grey">' + time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div></s>' +
-          '<div style="color:red">' + timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div>';
+        if (delayMinutes > 4) {
+          '<s><div style="color:grey">' +
+          time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+          '</div></s><div style="color:red">' +
+          timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+          '</div>';
         } else {
-          '<s><div style="color:grey">' + time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div></s>' +
-          '<div style="color:green">' + timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) + '</div>';
+          '<s><div style="color:grey">' +
+          time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+          '</div></s><div style="color:green">' +
+          timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+          '</div>';
         }
       }
+  - name: sort_time
+    multi:
+      - - attr
+        - Departure Time
+      - - attr
+        - Departure Time Real
+    modify: >
+      var time = new Date(x.split(" ")[0]); var timeReal = new Date(x.split("
+      ")[1]); if (isNaN(timeReal.getTime())) {
+        time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+      } else {
+        '<div style="color:green">' +
+        timeReal.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) +
+        '</div>';
+      }
+    hidden: true
 css:
   table+: "padding: 1px 5px 16px 5px;"
 card_mod:
@@ -108,12 +141,12 @@ card_mod:
 
 ### 📥 Installation
 
+#### 🔹Via [HACS](https://hacs.xyz/) 
+<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=EiS94&repository=db_info&category=integration" target="_blank"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open your Home Assistant instance and open the DB Info Repository inside the Home Assistant Community Store." /></a>
+
+
 #### 🔹 Manual Installation
 Copy the folder: `custom_components/db_info` into your Home Assistant directory: `config/custom_components`
-
-
-#### 🔹 HACS
-Currently **not available via HACS**.
 
 ---
 
