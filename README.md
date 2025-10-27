@@ -42,7 +42,7 @@ Make sure the following custom cards are installed:
 ```yaml
 type: custom:flex-table-card
 entities:
-  include: sensor.home_wu_hbf_verbindung_*
+  include: sensor.<NAME_OF_SENSORS_WITH_WILDCARD>* # e.g. sensor.wu_hbf_max_morlock_stadion_verbindung_*
 sort_by: sort_time
 columns:
   - name: Start
