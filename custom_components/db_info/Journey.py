@@ -3,6 +3,10 @@ import io
 from .Train import parse_train
 from .TrainProblem import TrainProblem
 
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
 
 class Journey:
     def __init__(self, trains):
@@ -173,11 +177,19 @@ def parse_duration(time):
 
 
 def parse_trip(json_data):
+    MAX_LEN = 200
+    json_short = str(json_data)
+    if len(json_short) > MAX_LEN:
+        json_short = json_short[:MAX_LEN] + "…"
+
+    _LOGGER.debug("Parsing journey from JSON data: %s", json_short)
+
     trains = []
     for train in json_data["verbindungsAbschnitte"]:
         trains.append(parse_train(train))
-    if trains[0].name == "Fußweg":
-        trains.pop(0)
-    if trains[-1].name == "Fußweg":
-        trains.pop(-1)
+    if len(trains) > 1:
+        if trains[0].name == "Fußweg":
+            trains.pop(0)
+        if trains[-1].name == "Fußweg":
+            trains.pop(-1)
     return Journey(trains)

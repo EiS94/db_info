@@ -1,4 +1,4 @@
-import voluptuous as vol  # noqa: D100
+import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.helpers.selector import (
@@ -12,10 +12,12 @@ from homeassistant.helpers.selector import (
 from .const import CONF_DESTINATION, CONF_START, CONF_UPDATE_INTERVAL, DOMAIN
 
 
-class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # noqa: D101
+class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Config flow for DB Info integration."""
+
     VERSION = 1
 
-    async def async_step_user(self, user_input=None):  # noqa: D102
+    async def async_step_user(self, user_input=None):
         errors = {}
 
         if user_input is not None:
@@ -30,7 +32,17 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # noqa: D101
 
             title = f"{start_name} → {destination_name}"
 
-            return self.async_create_entry(title=title, data=user_input)
+            # Speichere nur Start & Ziel in data, Intervall in options
+            return self.async_create_entry(
+                title=title,
+                data={
+                    CONF_START: user_input[CONF_START],
+                    CONF_DESTINATION: user_input[CONF_DESTINATION],
+                },
+                options={
+                    CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, 10)
+                },
+            )
 
         all_persons = self.hass.states.async_all("person")
 
@@ -63,3 +75,39 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # noqa: D101
         )
 
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        return DBInfoOptionsFlowHandler(config_entry)
+
+
+class DBInfoOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options for existing entries."""
+
+    def __init__(self, config_entry):
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=self.config_entry.options.get(
+                            CONF_UPDATE_INTERVAL,
+                            self.config_entry.data.get(CONF_UPDATE_INTERVAL, 10),
+                        ),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=1,
+                            max=60,
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    )
+                }
+            ),
+        )

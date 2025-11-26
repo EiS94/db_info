@@ -2,7 +2,9 @@
 
 ### 📌 What is DB Info?
 
-This Home Assistant integration provides **five sensors per entry**, each showing the **upcoming public transport connections** between two locations – including **real-time updates**.  
+This Home Assistant integration provides **five sensors per entry**, each showing the **upcoming public transport connections** between two locations – including **real-time updates**. 
+
+For example, you can get connections that you often need (e.g., home → main station) as a sensor, but you can also always see dynamic connections (e.g., route from my current location to home).
 
 <img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/table_example.png" alt="Table Example" width="400"/>
 

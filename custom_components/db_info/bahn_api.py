@@ -24,6 +24,8 @@ async def get_trip_info(start_coordinates, destination_coordinates):
     Returns dict of parsed journeys.
     """
 
+    _LOGGER.debug("Fetching trip info from Bahn API")
+
     time = datetime.now()
 
     time_str = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -76,6 +78,8 @@ async def get_trip_info(start_coordinates, destination_coordinates):
         _LOGGER.error("Error fetching data from Bahn API: %s", err)
         return {"journeys": {}}
 
+    _LOGGER.debug("Parsing trip info from Bahn API response")
+
     journeys = []
     for journey in json_data.get("verbindungen", []):
         journeys.append(parse_trip(journey))
@@ -95,6 +99,9 @@ def convert_coordinates_to_db_format(coordinates):
     :param coordinates: tuple of lat, lng coordinates, e.g. (50.0014936, 8.2591178)
     :return: string of the coordinates in db-format: # Y=..@X=.. Coordinates (without decimal point, 6 decimal places must be specified)
     """
+
+    _LOGGER.debug("Converting coordinates %s to DB format", coordinates)
+
     lat_split = str(coordinates[0]).split(".")
     lat = f"{lat_split[0]}{lat_split[1][0:6]}"
     lng_split = str(coordinates[1]).split(".")
