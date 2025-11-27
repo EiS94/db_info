@@ -24,15 +24,17 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             start_entity = user_input[CONF_START]
             destination_entity = user_input[CONF_DESTINATION]
 
-            # Namen der Entities holen (z.B. Dieter, Zuhause)
             start_state = self.hass.states.get(start_entity)
             destination_state = self.hass.states.get(destination_entity)
-            start_name = start_state.name
-            destination_name = destination_state.name
+            start_name = start_state.name if start_state is not None else start_entity
+            destination_name = (
+                destination_state.name
+                if destination_state is not None
+                else destination_entity
+            )
 
             title = f"{start_name} → {destination_name}"
 
-            # Speichere nur Start & Ziel in data, Intervall in options
             return self.async_create_entry(
                 title=title,
                 data={
@@ -46,7 +48,7 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         all_persons = self.hass.states.async_all("person")
 
-        # only persons with coordinates
+        # only persons with location and all zones
         valid_persons = [
             p.entity_id
             for p in all_persons
@@ -58,7 +60,7 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ]
 
         if not valid_inputs:
-            errors["base"] = "No Enities with coordinates found"
+            errors["base"] = "no_entities_with_coordinates"
 
         schema = vol.Schema(
             {
@@ -78,36 +80,30 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(config_entry):
-        return DBInfoOptionsFlowHandler(config_entry)
+        """Return a handler for options flow."""
+        return DBInfoOptionsFlowHandler()
 
 
 class DBInfoOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options for existing entries."""
-
-    def __init__(self, config_entry):
-        self.config_entry = config_entry
+    """Handle options for existing entries (update interval)."""
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_UPDATE_INTERVAL,
-                        default=self.config_entry.options.get(
-                            CONF_UPDATE_INTERVAL,
-                            self.config_entry.data.get(CONF_UPDATE_INTERVAL, 10),
-                        ),
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=1,
-                            max=60,
-                            mode=NumberSelectorMode.BOX,
-                        )
-                    )
-                }
-            ),
+        current_interval = self.config_entry.options.get(
+            CONF_UPDATE_INTERVAL,
+            self.config_entry.data.get(CONF_UPDATE_INTERVAL, 10),
         )
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_UPDATE_INTERVAL, default=current_interval
+                ): NumberSelector(
+                    NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
+                )
+            }
+        )
+
+        return self.async_show_form(step_id="init", data_schema=schema)
