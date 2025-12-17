@@ -13,8 +13,6 @@ from .const import CONF_DESTINATION, CONF_START, CONF_UPDATE_INTERVAL, DOMAIN
 
 
 class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Config flow for DB Info integration."""
-
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
@@ -80,13 +78,10 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(config_entry):
-        """Return a handler for options flow."""
         return DBInfoOptionsFlowHandler()
 
 
 class DBInfoOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options for existing entries (update interval)."""
-
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)

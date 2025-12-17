@@ -88,7 +88,11 @@ async def get_trip_info(start_coordinates, destination_coordinates):
     for i, journey in enumerate(journeys):
         json_output["journeys"][i] = journey.to_json()
 
-    _LOGGER.info("Successfully fetched %d journeys from Bahn API", len(journeys))
+    _LOGGER.info(
+        "Successfully fetched %d journeys from Bahn API, timestamp: %f",
+        len(journeys),
+        time.timestamp(),
+    )
 
     return json_output
 
@@ -100,7 +104,7 @@ def convert_coordinates_to_db_format(coordinates):
     :return: string of the coordinates in db-format: # Y=..@X=.. Coordinates (without decimal point, 6 decimal places must be specified)
     """
 
-    _LOGGER.debug("Converting coordinates %s to DB format", coordinates)
+    _LOGGER.debug("Converting coordinates to DB format")
 
     lat_split = str(coordinates[0]).split(".")
     lat = f"{lat_split[0]}{lat_split[1][0:6]}"
