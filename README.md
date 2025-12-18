@@ -37,9 +37,8 @@ Make sure the following custom cards are installed:
 - [**flex-table-card**](https://github.com/custom-cards/flex-table-card)  
 - [**card-mod**](https://github.com/thomasloven/lovelace-card-mod)
 
-#### 🖼️ Code
-
-<img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/table_example.png" alt="Table Example" width="400"/>
+<details>
+<summary>Code anzeigen</summary>
 
 ```yaml
 type: custom:flex-table-card
@@ -138,6 +137,7 @@ card_mod:
         padding-bottom: 1px; 
       }
 ```
+</details>
 
 ---
 
