@@ -38,7 +38,7 @@ Make sure the following custom cards are installed:
 - [**card-mod**](https://github.com/thomasloven/lovelace-card-mod)
 
 <details>
-<summary>Code anzeigen</summary>
+<summary>show code</summary>
 
 ```yaml
 type: custom:flex-table-card
