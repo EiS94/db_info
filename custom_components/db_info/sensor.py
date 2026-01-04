@@ -60,4 +60,5 @@ class DBTrainSensor(CoordinatorEntity, Entity):
             "Name": journey.get("Name"),
             "Transfers": journey.get("Transfers"),
             "Problems": journey.get("Problems"),
+            "Trains": journey.get("Trains"),
         }

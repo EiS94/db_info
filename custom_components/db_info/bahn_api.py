@@ -18,12 +18,9 @@ DEFAULT_HEADERS = {
 }
 
 
-async def get_trip_info(start_coordinates, destination_coordinates):
-    """
-    Get train connection info between two coordinate pairs from Bahn.de.
-    Returns dict of parsed journeys.
-    """
-
+async def get_trip_info(
+    start_coordinates, destination_coordinates, connection_type="all"
+):
     _LOGGER.debug("Fetching trip info from Bahn API")
 
     time = datetime.now()
@@ -33,13 +30,24 @@ async def get_trip_info(start_coordinates, destination_coordinates):
     start_coordinates = convert_coordinates_to_db_format(start_coordinates)
     destination_coordinates = convert_coordinates_to_db_format(destination_coordinates)
 
-    data = {
-        "abfahrtsHalt": start_coordinates,
-        "anfrageZeitpunkt": time_str,
-        "ankunftsHalt": destination_coordinates,
-        "ankunftSuche": "ABFAHRT",
-        "klasse": "KLASSE_2",
-        "produktgattungen": [
+    if connection_type == "regional":
+        produktgattungen = [
+            "REGIONAL",
+            "SBAHN",
+            "BUS",
+            "SCHIFF",
+            "UBAHN",
+            "TRAM",
+            "ANRUFPFLICHTIG",
+        ]
+    elif connection_type == "long_distance":
+        produktgattungen = [
+            "ICE",
+            "EC_IC",
+            "IR",
+        ]
+    else:
+        produktgattungen = [
             "ICE",
             "EC_IC",
             "IR",
@@ -50,7 +58,15 @@ async def get_trip_info(start_coordinates, destination_coordinates):
             "UBAHN",
             "TRAM",
             "ANRUFPFLICHTIG",
-        ],
+        ]
+
+    data = {
+        "abfahrtsHalt": start_coordinates,
+        "anfrageZeitpunkt": time_str,
+        "ankunftsHalt": destination_coordinates,
+        "ankunftSuche": "ABFAHRT",
+        "klasse": "KLASSE_2",
+        "produktgattungen": produktgattungen,
         "reisende": [
             {
                 "typ": "ERWACHSENER",

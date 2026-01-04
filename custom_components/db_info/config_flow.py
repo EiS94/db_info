@@ -7,9 +7,12 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
 )
 
-from .const import CONF_DESTINATION, CONF_START, CONF_UPDATE_INTERVAL, DOMAIN
+from .const import *
+# CONF_DESTINATION, CONF_START, CONF_UPDATE_INTERVAL, DOMAIN
 
 
 class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -38,6 +41,7 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_START: user_input[CONF_START],
                     CONF_DESTINATION: user_input[CONF_DESTINATION],
+                    CONF_CONNECTION_TYPE: user_input[CONF_CONNECTION_TYPE],
                 },
                 options={
                     CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, 10)
@@ -68,6 +72,21 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_DESTINATION): EntitySelector(
                     EntityFilterSelectorConfig(include_entities=valid_inputs)
                 ),
+                vol.Required(
+                    CONF_CONNECTION_TYPE, default=CONNECTION_ALL
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            {"value": CONNECTION_ALL, "label": "Alle"},
+                            {"value": CONNECTION_REGIONAL, "label": "Nur Nahverkehr"},
+                            {
+                                "value": CONNECTION_LONG_DISTANCE,
+                                "label": "Nur Fernverkehr",
+                            },
+                        ],
+                        mode="dropdown",
+                    )
+                ),
                 vol.Optional(CONF_UPDATE_INTERVAL, default=10): NumberSelector(
                     NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
                 ),
@@ -91,13 +110,33 @@ class DBInfoOptionsFlowHandler(config_entries.OptionsFlow):
             self.config_entry.data.get(CONF_UPDATE_INTERVAL, 10),
         )
 
+        current_connection_type = self.config_entry.options.get(
+            CONF_CONNECTION_TYPE,
+            self.config_entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_ALL),
+        )
+
         schema = vol.Schema(
             {
+                vol.Required(
+                    CONF_CONNECTION_TYPE, default=current_connection_type
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            {"value": CONNECTION_ALL, "label": "Alle"},
+                            {"value": CONNECTION_REGIONAL, "label": "Nur Nahverkehr"},
+                            {
+                                "value": CONNECTION_LONG_DISTANCE,
+                                "label": "Nur Fernverkehr",
+                            },
+                        ],
+                        mode="dropdown",
+                    )
+                ),
                 vol.Required(
                     CONF_UPDATE_INTERVAL, default=current_interval
                 ): NumberSelector(
                     NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
-                )
+                ),
             }
         )
 

@@ -114,6 +114,9 @@ class Journey:
         at_real = self.get_arrival_time_real()
         if at_real is not None:
             at_real = at_real.strftime("%Y-%m-%dT%H:%M:%S%z")
+        trains = []
+        for train in self.trains:
+            trains.append(train.to_json())
         attributes = {
             "Name": name[0:-4],
             "Departure": self.get_departure(),
@@ -125,6 +128,7 @@ class Journey:
             "Arrival Time": self.get_arrival_time().strftime("%Y-%m-%dT%H:%M:%S%z"),
             "Arrival Time Real": at_real,
             "Problems": problems,
+            "Trains": str(trains),
         }
         return attributes
 

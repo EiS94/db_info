@@ -12,10 +12,12 @@ from homeassistant.helpers.update_coordinator import (
 
 from .bahn_api import get_trip_info
 from .const import (
+    CONNECTION_ALL,
     DOMAIN,
     CONF_START,
     CONF_DESTINATION,
     CONF_UPDATE_INTERVAL,
+    CONF_CONNECTION_TYPE,
     DEFAULT_UPDATE_INTERVAL,
 )
 
@@ -91,7 +93,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 dest_attrs["longitude"],
             )
 
-            return await get_trip_info(start_coords, dest_coords)
+            connection_type = entry.options.get(
+                CONF_CONNECTION_TYPE,
+                entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_ALL),
+            )
+
+            return await get_trip_info(
+                start_coords, dest_coords, connection_type=connection_type
+            )
 
         except UpdateFailed:
             raise

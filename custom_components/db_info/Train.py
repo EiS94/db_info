@@ -55,9 +55,13 @@ class Train:
         return self.stops[0].departure_time_real
 
     def get_departure(self):
+        if len(self.stops) == 0:
+            return "Fußweg"
         return self.stops[0].name
 
     def get_destination(self):
+        if len(self.stops) == 0:
+            return "Fußweg"
         return self.stops[-1].name
 
     def get_duration(self):
@@ -74,17 +78,32 @@ class Train:
         return arrival_time - departure_time
 
     def get_arrival_platform(self):
+        if len(self.stops) == 0:
+            return ""
         return self.stops[0].platform
 
     def get_destination_platform(self):
+        if len(self.stops) == 0:
+            return ""
         return self.stops[-1].platform
 
     def to_json(self):
-        attributes = {
-            "Departure": self.get_departure(),
-            "Arrival": self.get_arrival_platform(),
-            "Duration": self.get_duration(),
-        }
+        if self.name == "Fußweg":
+            attributes = {"Name": "Fußweg"}
+        else:
+            attributes = {
+                "Name": self.name,
+                "Departure": self.get_departure(),
+                "Departure Time": self.get_departure_time().strftime(
+                    "%Y-%m-%dT%H:%M:%S%z"
+                ),
+                "Departure Platform": self.get_destination_platform(),
+                "Arrival": self.get_destination(),
+                "Arrival Time": self.get_arrival_time().strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "Arrival Platform": self.get_arrival_platform(),
+                # "Duration": self.get_duration(),
+            }
+        return attributes
 
 
 def parse_train(json_data):
