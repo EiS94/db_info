@@ -4,16 +4,6 @@ from .TrainProblem import TrainProblem
 
 class Train:
     def __init__(self, name, direction, stops, notes):
-        """
-        :type name: str
-        :type direction: str
-        :type stops: list[Stop.Stop]
-        :type notes: list[str]
-        :param name:
-        :param direction:
-        :param stops:
-        :param notes:
-        """
         self.name = name
         self.direction = direction
         self.stops = stops
@@ -80,26 +70,38 @@ class Train:
     def get_arrival_platform(self):
         if len(self.stops) == 0:
             return ""
-        return self.stops[0].platform
+        return self.stops[-1].platform
 
-    def get_destination_platform(self):
+    def get_departure_platform(self):
         if len(self.stops) == 0:
             return ""
-        return self.stops[-1].platform
+        return self.stops[0].platform
 
     def to_json(self):
         if self.name == "Fußweg":
             attributes = {"Name": "Fußweg"}
         else:
+            departure_time_real = self.get_departure_time_real()
+            if departure_time_real is not None:
+                departure_time_real = self.get_departure_time_real().strftime(
+                    "%Y-%m-%dT%H:%M:%S%z"
+                )
+            arrival_time_real = self.get_arrival_time_real()
+            if arrival_time_real is not None:
+                arrival_time_real = self.get_arrival_time_real().strftime(
+                    "%Y-%m-%dT%H:%M:%S%z"
+                )
             attributes = {
                 "Name": self.name,
                 "Departure": self.get_departure(),
                 "Departure Time": self.get_departure_time().strftime(
                     "%Y-%m-%dT%H:%M:%S%z"
                 ),
-                "Departure Platform": self.get_destination_platform(),
+                "Departure Time Real": departure_time_real,
+                "Departure Platform": self.get_departure_platform(),
                 "Arrival": self.get_destination(),
                 "Arrival Time": self.get_arrival_time().strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "Arrival Time Real": arrival_time_real,
                 "Arrival Platform": self.get_arrival_platform(),
                 # "Duration": self.get_duration(),
             }

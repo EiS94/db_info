@@ -10,10 +10,6 @@ _LOGGER = logging.getLogger(__name__)
 
 class Journey:
     def __init__(self, trains):
-        """
-        :type trains: list[Train.Train]
-        :param trains: list of trains that must be used for this journey in the correct order
-        """
         self.trains = trains
         self.problems = {}
         self.detect_problems()
@@ -128,7 +124,7 @@ class Journey:
             "Arrival Time": self.get_arrival_time().strftime("%Y-%m-%dT%H:%M:%S%z"),
             "Arrival Time Real": at_real,
             "Problems": problems,
-            "Trains": str(trains),
+            "Details": str(trains).replace("None", "null"),
         }
         return attributes
 

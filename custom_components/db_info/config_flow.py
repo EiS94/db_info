@@ -12,7 +12,6 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import *
-# CONF_DESTINATION, CONF_START, CONF_UPDATE_INTERVAL, DOMAIN
 
 
 class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
