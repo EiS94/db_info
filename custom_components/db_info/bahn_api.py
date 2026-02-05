@@ -86,7 +86,7 @@ async def get_trip_info(
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                DB_API_URL, headers=DEFAULT_HEADERS, json=data, timeout=10
+                DB_API_URL, headers=DEFAULT_HEADERS, json=data, timeout=20
             ) as response:
                 response.raise_for_status()
                 json_data = await response.json()
