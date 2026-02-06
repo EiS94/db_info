@@ -123,7 +123,11 @@ def convert_coordinates_to_db_format(coordinates):
     _LOGGER.debug("Converting coordinates to DB format")
 
     lat_split = str(coordinates[0]).split(".")
-    lat = f"{lat_split[0]}{lat_split[1][0:6]}"
+    dec = lat_split[1][0:6].ljust(6, "0")
+    lat = f"{lat_split[0]}{dec}"
+    
     lng_split = str(coordinates[1]).split(".")
-    lng = f"{lng_split[0]}{lng_split[1][0:6]}"
+    dec = lng_split[1][0:6].ljust(6, "0")
+    lng = f"{lng_split[0]}{dec}"
+    
     return f"Y={lat}@X={lng}"
