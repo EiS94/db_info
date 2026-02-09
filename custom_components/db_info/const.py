@@ -16,3 +16,7 @@ DEFAULT_MAX_CONNECTIONS = 5
 CONNECTION_ALL = "all"
 CONNECTION_REGIONAL = "regional"
 CONNECTION_LONG_DISTANCE = "long_distance"
+
+# Entity suffixes
+DATETIME_ENTITY_SUFFIX = "_departure_time"
+USE_CUSTOM_TIME_SUFFIX = "_custom_time"

@@ -19,11 +19,43 @@ DEFAULT_HEADERS = {
 
 
 async def get_trip_info(
-    start_coordinates, destination_coordinates, connection_type="all"
+    start_coordinates,
+    destination_coordinates,
+    connection_type="all",
+    custom_datetime=None,
 ):
     _LOGGER.debug("Fetching trip info from Bahn API")
 
-    time = datetime.now()
+    if custom_datetime:
+        # custom_datetime is already a datetime object (from datetime entity state)
+        # or a string in ISO format from the entity
+        try:
+            if isinstance(custom_datetime, str):
+                # Parse ISO format string (with timezone info)
+                time = datetime.fromisoformat(custom_datetime)
+                # Remove timezone info for API (API expects naive datetime)
+                time = time.replace(tzinfo=None)
+            elif isinstance(custom_datetime, datetime):
+                # If it's already a datetime object, remove timezone if present
+                time = (
+                    custom_datetime.replace(tzinfo=None)
+                    if custom_datetime.tzinfo
+                    else custom_datetime
+                )
+            else:
+                _LOGGER.warning(
+                    f"Unexpected custom_datetime type: {type(custom_datetime)}. Using current time."
+                )
+                time = datetime.now()
+
+            _LOGGER.info(f"Using custom departure time: {time}")
+        except (ValueError, AttributeError) as err:
+            _LOGGER.warning(
+                f"Could not parse custom datetime '{custom_datetime}': {err}. Using current time."
+            )
+            time = datetime.now()
+    else:
+        time = datetime.now()
 
     time_str = time.strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -125,9 +157,9 @@ def convert_coordinates_to_db_format(coordinates):
     lat_split = str(coordinates[0]).split(".")
     dec = lat_split[1][0:6].ljust(6, "0")
     lat = f"{lat_split[0]}{dec}"
-    
+
     lng_split = str(coordinates[1]).split(".")
     dec = lng_split[1][0:6].ljust(6, "0")
     lng = f"{lng_split[0]}{dec}"
-    
+
     return f"Y={lat}@X={lng}"

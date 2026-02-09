@@ -23,7 +23,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[str] = ["sensor", "button"]
+PLATFORMS: list[str] = ["sensor", "button", "datetime", "switch"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -98,8 +98,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_ALL),
             )
 
+            # Find the switch and datetime entities by unique_id
+            from homeassistant.helpers import entity_registry as er
+
+            entity_reg = er.async_get(hass)
+            custom_datetime = None
+
+            # Find switch entity
+            switch_unique_id = f"{DOMAIN}_{entry.entry_id}_custom_time"
+            switch_entity_id = entity_reg.async_get_entity_id(
+                "switch", DOMAIN, switch_unique_id
+            )
+
+            # Find datetime entity
+            datetime_unique_id = f"{DOMAIN}_{entry.entry_id}_departure_time"
+            datetime_entity_id = entity_reg.async_get_entity_id(
+                "datetime", DOMAIN, datetime_unique_id
+            )
+
+            if switch_entity_id and datetime_entity_id:
+                custom_time_state = hass.states.get(switch_entity_id)
+
+                if custom_time_state and custom_time_state.state == "on":
+                    datetime_state = hass.states.get(datetime_entity_id)
+                    if datetime_state and datetime_state.state not in [
+                        "unknown",
+                        "unavailable",
+                    ]:
+                        custom_datetime = datetime_state.state
+                        _LOGGER.debug(f"Using custom departure time: {custom_datetime}")
+            else:
+                _LOGGER.debug(
+                    f"Custom time entities not found yet (switch: {switch_entity_id}, datetime: {datetime_entity_id})"
+                )
+
             return await get_trip_info(
-                start_coords, dest_coords, connection_type=connection_type
+                start_coords,
+                dest_coords,
+                connection_type=connection_type,
+                custom_datetime=custom_datetime,
             )
 
         except UpdateFailed:
