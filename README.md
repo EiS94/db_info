@@ -6,10 +6,9 @@ This Home Assistant integration provides **five sensors per entry**, each showin
 
 For example, you can get connections that you often need (e.g., home → main station) as a sensor, but you can also always see dynamic connections (e.g., route from my current location to home).
 
-<img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/table_example.png" alt="Table Example" width="400"/>
+<img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/db-info-card.gif" alt="DB Info Card Preview" width="500"/>
 
 > Note: It works **exclusively within the Deutsche Bahn (DB) network**.
-
 
 ---
 
@@ -20,25 +19,37 @@ You can use the following as both **origin** and **destination**:
 - 🧍 **Person entities** (with coordinates as an attribute)  
 - 📍 **Zones**
 
-This allows you, for example, to retrieve real-time data from a **user’s current location** to their **home address**.
+This allows you, for example, to retrieve real-time data from a **user's current location** to their **home address**.
 
 <img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/sensor_example.png" alt="Sensor Example" width="300"/>
 
+
 ---
 
-### 📊 Lovelace Example
+### 📊 Lovelace
 
-To display the sensors in a clean table view, you can use a custom Lovelace setup.
+#### ✅ Recommended: DB Info Card
 
-#### ✅ Requirements
+The easiest and most feature-rich way to display your connections is the dedicated [**DB Info Card**](https://github.com/EiS94/db-info-card) — a custom Lovelace card built specifically for this integration.
 
-Make sure the following custom cards are installed:
+<img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/db-info-card.gif" alt="DB Info Card Preview" width="500"/>
 
-- [**flex-table-card**](https://github.com/custom-cards/flex-table-card)  
-- [**card-mod**](https://github.com/thomasloven/lovelace-card-mod)
+**Features:**
+- Clean table view with real-time delay visualization
+- Expandable rows with per-segment details (stops, platforms, delays)
+- Built-in visual editor — no YAML required
+
+👉 **[Installation & Documentation](https://github.com/EiS94/db-info-card)**
+
+---
 
 <details>
-<summary>show code</summary>
+<summary>⚙️ Alternative: flex-table-card (old method)</summary>
+
+To display the sensors using flex-table-card, make sure the following custom cards are installed:
+
+- [**flex-table-card**](https://github.com/custom-cards/flex-table-card)
+- [**card-mod**](https://github.com/thomasloven/lovelace-card-mod)
 
 ```yaml
 type: custom:flex-table-card
@@ -57,8 +68,8 @@ columns:
       - - attr
         - Departure Time Real
     modify: >
-      var time = new Date(x.split(" ")[0]); var timeReal = new Date(x.split("
-      ")[1]); if (isNaN(timeReal.getTime())) {
+      var time = new Date(x.split(" ")[0]); var timeReal = new Date(x.split(
+      " ")[1]); if (isNaN(timeReal.getTime())) {
         time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
       } else if (time >= timeReal) {
         '<div style="color:green">' +
@@ -87,8 +98,8 @@ columns:
       - - attr
         - Arrival Time Real
     modify: >
-      var time = new Date(x.split(" ")[0]); var timeReal = new Date(x.split("
-      ")[1]); if (isNaN(timeReal.getTime())) {
+      var time = new Date(x.split(" ")[0]); var timeReal = new Date(x.split(
+      " ")[1]); if (isNaN(timeReal.getTime())) {
         time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
       } else if (time >= timeReal) {
         '<div style="color:green">' +
@@ -117,8 +128,8 @@ columns:
       - - attr
         - Departure Time Real
     modify: >
-      var time = new Date(x.split(" ")[0]); var timeReal = new Date(x.split("
-      ")[1]); if (isNaN(timeReal.getTime())) {
+      var time = new Date(x.split(" ")[0]); var timeReal = new Date(x.split(
+      " ")[1]); if (isNaN(timeReal.getTime())) {
         time.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
       } else {
         '<div style="color:green">' +
@@ -137,6 +148,7 @@ card_mod:
         padding-bottom: 1px; 
       }
 ```
+
 </details>
 
 ---
@@ -146,15 +158,8 @@ card_mod:
 #### 🔹Via [HACS](https://hacs.xyz/) 
 <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=EiS94&repository=db_info&category=integration" target="_blank"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open your Home Assistant instance and open the DB Info Repository inside the Home Assistant Community Store." /></a>
 
-
 #### 🔹 Manual Installation
 Copy the folder: `custom_components/db_info` into your Home Assistant directory: `config/custom_components`
-
----
-
-### 🔧 In Development
-
-Future updates will allow **manually entering coordinates** as origin or destination, giving you more flexibility beyond person or zone entities.
 
 ---
 
