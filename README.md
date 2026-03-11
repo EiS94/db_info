@@ -51,6 +51,9 @@ To display the sensors using flex-table-card, make sure the following custom car
 - [**flex-table-card**](https://github.com/custom-cards/flex-table-card)
 - [**card-mod**](https://github.com/thomasloven/lovelace-card-mod)
 
+<img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/table_example.png" alt="Flex Table Card Preview" width="500"/>
+
+
 ```yaml
 type: custom:flex-table-card
 entities:
