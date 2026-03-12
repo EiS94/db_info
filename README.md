@@ -1,3 +1,10 @@
+[![GitHub Release](https://img.shields.io/github/v/release/EiS94/db_info)](https://github.com/EiS94/db_info/releases/latest)
+[![License](https://img.shields.io/github/license/EiS94/db_info)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/EiS94/db_info)](https://github.com/EiS94/db_info/stargazers)
+[![Validate](https://img.shields.io/github/actions/workflow/status/EiS94/db_info/validate.yml?label=Validate)](https://github.com/EiS94/db_info/actions/workflows/validate.yml)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
+[![Usage](https://img.shields.io/badge/dynamic/json?logo=home-assistant&logoColor=ccc&label=Usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.db_info.total)](https://github.com/EiS94/db_info/releases)
+
 ## 🚉 DB Info – Public Transport with Real-Time Data
 
 ### 📌 What is DB Info?
