@@ -1,5 +1,7 @@
 from datetime import datetime  # noqa: D100
 import logging
+import random
+import uuid
 
 import aiohttp
 
@@ -9,14 +11,29 @@ _LOGGER = logging.getLogger(__name__)
 
 DB_API_URL = "https://www.bahn.de/web/api/angebote/fahrplan"
 
-DEFAULT_HEADERS = {
-    "Accept": "application/json",
-    "Accept-Language": "de",
-    "Content-Type": "application/json; charset=utf-8",
-    "Origin": "https://www.bahn.de",
-    "Referer": "https://www.bahn.de/buchung/fahrplan/suche",
-}
+# User-Agent-Rotation
+def random_chrome():
+    major = random.randint(126, 128)
+    patch = random.randint(6478, 6668)
+    build = random.randint(29, 234)
+    return (
+        f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{major}.0.{patch}.{build} Safari/537.36"
+    )
 
+def random_firefox():
+    major = random.randint(128, 130)
+    esr = "esr" if random.random() < 0.3 else ""
+    return (
+        f"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{major}.0) "
+        f"Gecko/20100101 Firefox/{major}.0{esr}"
+    )
+
+def random_useragent():
+    if random.random() <= 0.2:
+        return random_firefox()
+    return random_chrome()
 
 async def get_trip_info(
     start_coordinates,
@@ -115,10 +132,21 @@ async def get_trip_info(
         "reservierungsKontingenteVorhanden": False,
     }
 
+    correlation_id = f"{uuid.uuid4()}_{uuid.uuid4()}"
+
+    HEADERS = {
+        "User-Agent":       random_useragent(),
+        "Accept":           "application/json",
+        "Content-Type":     "application/json; charset=utf-8",
+        "Referer":          "https://www.bahn.de/buchung/fahrplan/suche",
+        "Origin":           "https://www.bahn.de",
+        "x-correlation-id": correlation_id
+    }
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                DB_API_URL, headers=DEFAULT_HEADERS, json=data, timeout=20
+                DB_API_URL, headers=HEADERS, json=data, timeout=20
             ) as response:
                 response.raise_for_status()
                 json_data = await response.json()
