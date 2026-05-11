@@ -106,10 +106,10 @@ class Journey:
             name += train.name + " -> "
         dt_real = self.get_departure_time_real()
         if dt_real is not None:
-            dt_real = dt_real.strftime("%Y-%m-%dT%H:%M:%S%z")
+            dt_real = dt_real.astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
         at_real = self.get_arrival_time_real()
         if at_real is not None:
-            at_real = at_real.strftime("%Y-%m-%dT%H:%M:%S%z")
+            at_real = at_real.astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
         trains = []
         for train in self.trains:
             trains.append(train.to_json())
@@ -119,9 +119,13 @@ class Journey:
             "Arrival": self.get_destination(),
             "Transfers": self.get_number_of_train_changes(),
             "Duration": parse_duration(self.get_duration()),
-            "Departure Time": self.get_departure_time().strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "Departure Time": self.get_departure_time()
+            .astimezone()
+            .strftime("%Y-%m-%dT%H:%M:%S%z"),
             "Departure Time Real": dt_real,
-            "Arrival Time": self.get_arrival_time().strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "Arrival Time": self.get_arrival_time()
+            .astimezone()
+            .strftime("%Y-%m-%dT%H:%M:%S%z"),
             "Arrival Time Real": at_real,
             "Problems": problems,
             "Details": str(trains).replace("None", "null"),

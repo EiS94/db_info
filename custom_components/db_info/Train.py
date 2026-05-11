@@ -4,7 +4,7 @@ from .TrainProblem import TrainProblem
 
 class Train:
     def __init__(self, name, direction, stops, notes):
-        self.name = name
+        self.name = name.replace(" InterCityExpress", "").replace("R-Bahn ", "").replace("S-Bahn ", "")
         self.direction = direction
         self.stops = stops
         self.notes = notes

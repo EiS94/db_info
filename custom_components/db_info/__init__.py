@@ -13,11 +13,13 @@ from homeassistant.helpers.update_coordinator import (
 from .bahn_api import get_trip_info
 from .const import (
     CONNECTION_ALL,
+    CONNECTION_CUSTOM,
     DOMAIN,
     CONF_START,
     CONF_DESTINATION,
     CONF_UPDATE_INTERVAL,
     CONF_CONNECTION_TYPE,
+    CONF_TRANSPORT_TYPES,
     DEFAULT_UPDATE_INTERVAL,
 )
 
@@ -98,6 +100,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_ALL),
             )
 
+            transport_types = None
+            if connection_type == CONNECTION_CUSTOM:
+                transport_types = entry.options.get(
+                    CONF_TRANSPORT_TYPES,
+                    entry.data.get(CONF_TRANSPORT_TYPES, None),
+                ) or None
+
             # Find the switch and datetime entities by unique_id
             from homeassistant.helpers import entity_registry as er
 
@@ -137,6 +146,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 dest_coords,
                 connection_type=connection_type,
                 custom_datetime=custom_datetime,
+                transport_types=transport_types,
             )
 
         except UpdateFailed:

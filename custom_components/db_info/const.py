@@ -16,6 +16,29 @@ DEFAULT_MAX_CONNECTIONS = 5
 CONNECTION_ALL = "all"
 CONNECTION_REGIONAL = "regional"
 CONNECTION_LONG_DISTANCE = "long_distance"
+CONNECTION_CUSTOM = "custom"
+
+# Config key for custom transport types
+CONF_TRANSPORT_TYPES = "Verkehrsmittel_Custom"
+
+# All available transport types (DB API values)
+ALL_TRANSPORT_TYPES = [
+    "ICE",
+    "EC_IC",
+    "IR",
+    "REGIONAL",
+    "SBAHN",
+    "BUS",
+    "SCHIFF",
+    "UBAHN",
+    "TRAM",
+    "ANRUFPFLICHTIG",
+]
+
+# Default selections per preset
+TRANSPORT_TYPES_ALL = ALL_TRANSPORT_TYPES
+TRANSPORT_TYPES_REGIONAL = ["REGIONAL", "SBAHN", "BUS", "SCHIFF", "UBAHN", "TRAM", "ANRUFPFLICHTIG"]
+TRANSPORT_TYPES_LONG_DISTANCE = ["ICE", "EC_IC", "IR"]
 
 # Entity suffixes
 DATETIME_ENTITY_SUFFIX = "_departure_time"
