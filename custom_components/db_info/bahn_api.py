@@ -1,6 +1,4 @@
-"""EFA/Moby API client (bahnland-bayern.de) — replaces the old bahn.de scraper."""
-
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import logging
 from zoneinfo import ZoneInfo
 
@@ -153,7 +151,6 @@ def _parse_efa_response(data):
             else:
                 train_name = t_name
 
-            # Direction
             direction = transportation.get("destination", {}).get("name")
 
             # Build stops from stopSequence
@@ -227,7 +224,6 @@ async def get_trip_info(
     custom_datetime=None,
     transport_types=None,
 ):
-    """Fetch trip info from bahnland-bayern.de EFA API."""
     _LOGGER.debug("Fetching trip info from EFA API (bahnland-bayern.de)")
 
     # Resolve departure time
