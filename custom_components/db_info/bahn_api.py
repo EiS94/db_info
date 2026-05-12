@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 import logging
-from zoneinfo import ZoneInfo
 
 import aiohttp
 
@@ -116,9 +115,9 @@ def _parse_efa_response(data):
             destination = leg.get("destination", {})
 
             is_walk = (
-                product.get("class") == 100
-                or product.get("name") == "footpath"
-                or not transportation.get("name")
+                    product.get("class") == 100
+                    or product.get("name") == "footpath"
+                    or not transportation.get("name")
             )
 
             if is_walk:
@@ -177,17 +176,8 @@ def _parse_efa_response(data):
                 platform = props.get("platformName") or props.get("platform") or None
                 planned_platform = props.get("plannedPlatformName") or platform
 
-                # Use real-time arr/dep only when different from planned
-                arr_real = (
-                    arr_estimated
-                    if arr_estimated and arr_estimated != arr_planned
-                    else None
-                )
-                dep_real = (
-                    dep_estimated
-                    if dep_estimated and dep_estimated != dep_planned
-                    else None
-                )
+                arr_real = arr_estimated
+                dep_real = dep_estimated
 
                 stops.append(
                     Stop(
@@ -218,11 +208,11 @@ def _parse_efa_response(data):
 
 
 async def get_trip_info(
-    start_coordinates,
-    destination_coordinates,
-    connection_type="all",
-    custom_datetime=None,
-    transport_types=None,
+        start_coordinates,
+        destination_coordinates,
+        connection_type="all",
+        custom_datetime=None,
+        transport_types=None,
 ):
     _LOGGER.debug("Fetching trip info from EFA API (bahnland-bayern.de)")
 
@@ -238,7 +228,7 @@ async def get_trip_info(
                     "Unexpected custom_datetime type: %s. Using current time.",
                     type(custom_datetime),
                 )
-                time = datetime.now(ZoneInfo("Europe/Berlin"))
+                time = datetime.now().astimezone()
             _LOGGER.info("Using custom departure time: %s", time)
         except (ValueError, AttributeError) as err:
             _LOGGER.warning(
@@ -246,9 +236,9 @@ async def get_trip_info(
                 custom_datetime,
                 err,
             )
-            time = datetime.now(ZoneInfo("Europe/Berlin"))
+            time = datetime.now().astimezone()
     else:
-        time = datetime.now(ZoneInfo("Europe/Berlin"))
+        time = datetime.now().astimezone()
 
     lat_s, lon_s = start_coordinates[0], start_coordinates[1]
     lat_d, lon_d = destination_coordinates[0], destination_coordinates[1]
@@ -284,7 +274,7 @@ async def get_trip_info(
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                EFA_TRIP_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)
+                    EFA_TRIP_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 response.raise_for_status()
                 json_data = await response.json(content_type=None)

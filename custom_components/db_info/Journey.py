@@ -33,23 +33,23 @@ class Journey:
                     continue
             i += 1
             if (
-                train1.stops[-1].arrival_time_real is not None
-                and train2.stops[0].departure_time_real is not None
+                    train1.stops[-1].arrival_time_real is not None
+                    and train2.stops[0].departure_time_real is not None
             ):
                 change_time = (
-                    train2.stops[0].departure_time_real
-                    - train1.stops[-1].arrival_time_real
+                        train2.stops[0].departure_time_real
+                        - train1.stops[-1].arrival_time_real
                 )
             elif (
-                train2.stops[0].departure_time_real is None
-                and train1.stops[-1].arrival_time_real is not None
+                    train2.stops[0].departure_time_real is None
+                    and train1.stops[-1].arrival_time_real is not None
             ):
                 change_time = (
-                    train2.stops[0].departure_time - train1.stops[-1].arrival_time_real
+                        train2.stops[0].departure_time - train1.stops[-1].arrival_time_real
                 )
             else:
                 change_time = (
-                    train2.stops[0].departure_time - train1.stops[-1].arrival_time
+                        train2.stops[0].departure_time - train1.stops[-1].arrival_time
                 )
             if change_time.seconds / 60 < 2:
                 self.problems[
@@ -119,13 +119,9 @@ class Journey:
             "Arrival": self.get_destination(),
             "Transfers": self.get_number_of_train_changes(),
             "Duration": parse_duration(self.get_duration()),
-            "Departure Time": self.get_departure_time()
-            .astimezone()
-            .strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "Departure Time": self.get_departure_time().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z"),
             "Departure Time Real": dt_real,
-            "Arrival Time": self.get_arrival_time()
-            .astimezone()
-            .strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "Arrival Time": self.get_arrival_time().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z"),
             "Arrival Time Real": at_real,
             "Problems": problems,
             "Details": str(trains).replace("None", "null"),
