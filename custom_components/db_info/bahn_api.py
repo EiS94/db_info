@@ -19,49 +19,63 @@ _LOGGER = logging.getLogger(__name__)
 EFA_TRIP_URL = "https://bahnland-bayern.de/efa/XML_TRIP_REQUEST2"
 
 # EFA MOT (Means of Transport) class mapping
-# class 16 = Fernverkehr (ICE, IC, EC, EN)
-# class 13 = Regionalzug (RE, RB, IRE)
-# class 14 = S-Bahn
-# class  5 = Bus
-# class  6 = Tram/Straßenbahn
-# class  7 = U-Bahn
-# class 10 = Schiff
-# class  9 = Anrufpflichtig/AST
-#
+# class  1 = S-Bahn
+# class  2 = U-Bahn
+# class  3 = Tram
+# class  4 = Tram
+# class  5 = Stadtbus
+# class  6 = Regionalbus
+# class  7 = Expressbus
+# class  8 = Sonstige
+# class  9 = Schiff
+# class 10 = AST/Rufbus
+# class 11 = Sonstige
+# class 13 = Nahverkehr
+# class 14 = IC/EC
+# class 15 = IC/EC
+# class 16 = ICE
+# class 17 = Sonstige
+# class 20 = AST/Rufbus
+
 # inclMOT_N parameters use the index N, not the class value.
 # Mapping: MOT index → product class
 _MOT_ALL = {str(i): "true" for i in range(0, 21)}
 
 _MOT_LONG_DISTANCE = {
-    "inclMOT_0": "true",  # Zug (allgemein / Fernverkehr)
+    "inclMOT_14": "true",  # IC/EC,
+    "inclMOT_15": "true",  # IC/EC,
+    "inclMOT_16": "true"   # ICE
 }
 
 _MOT_REGIONAL = {
-    "inclMOT_1": "true",  # S-Bahn (DB)
+    "inclMOT_1": "true",  # S-Bahn
     "inclMOT_2": "true",  # U-Bahn
-    "inclMOT_3": "true",  # Stadtbahn
+    "inclMOT_3": "true",  # Tram
     "inclMOT_4": "true",  # Tram
-    "inclMOT_5": "true",  # Bus
+    "inclMOT_5": "true",  # Stadtbus
     "inclMOT_6": "true",  # Regionalbus
-    "inclMOT_7": "true",  # Schnellbus
-    "inclMOT_8": "true",  # Seilbahn/Fähre
-    "inclMOT_9": "true",  # AST/Anrufpflichtig
-    "inclMOT_10": "true",  # Regionalzug
-    "inclMOT_11": "true",  # Stadtexpress
+    "inclMOT_7": "true",  # Expressbus
+    "inclMOT_8": "true",  # Sonstige
+    "inclMOT_9": "true",  # Schiff
+    "inclMOT_10": "true",  # AST/Rufbus
+    "inclMOT_11": "true",  # Sonstige
+    "inclMOT_13": "true",  # Nahverkehr
+    "inclMOT_17": "true",  # Sonstige
+    "inclMOT_20": "true"  # AST/Rufbus
 }
 
 # Internal transport type → MOT inclMOT_N key
 _TYPE_TO_MOT = {
-    "ICE": "inclMOT_0",
-    "EC_IC": "inclMOT_0",
-    "IR": "inclMOT_0",
-    "REGIONAL": "inclMOT_10",
     "SBAHN": "inclMOT_1",
-    "BUS": "inclMOT_5",
-    "SCHIFF": "inclMOT_8",
     "UBAHN": "inclMOT_2",
-    "TRAM": "inclMOT_4",
-    "ANRUFPFLICHTIG": "inclMOT_9",
+    "TRAM": "inclMOT_3&inclMOT_4",
+    "BUS": "inclMOT_5&inclMOT_6&inclMOT_7",
+    "SCHIFF": "inclMOT_9",
+    "AST/RUFBUS": "inclMOT_10&inclMOT_20",
+    "ICE": "inclMOT_16",
+    "IC/EC": "inclMOT_14&inclMOT_15",
+    "Sonstige": "inclMOT_17&inclMOT_8&inclMOT_11",
+    "NAHVERKEHR": "inclMOT_13"
 }
 
 

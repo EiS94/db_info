@@ -29,16 +29,16 @@ from .const import (
 
 # Human-readable labels for individual transport types
 TRANSPORT_TYPE_LABELS = {
-    "ICE": "ICE (Intercity-Express)",
-    "EC_IC": "EC / IC (Eurocity / Intercity)",
-    "IR": "IR (Interregio)",
-    "REGIONAL": "RE / RB (Regionalexpress / Regionalbahn)",
     "SBAHN": "S-Bahn",
-    "BUS": "Bus",
-    "SCHIFF": "Schiff / Fähre",
     "UBAHN": "U-Bahn",
-    "TRAM": "Straßenbahn / Tram",
-    "ANRUFPFLICHTIG": "Anrufpflichtiger Verkehr",
+    "TRAM": "Tram",
+    "BUS": "Bus",
+    "SCHIFF": "Schiff",
+    "AST/RUFBUS": "AST/Rufbus",
+    "ICE": "ICE",
+    "IC/EC": "IC/EC",
+    "NAHVERKEHR": "Nahverkehr",
+    "SONSTIGE": "Sonstige"
 }
 
 CONNECTION_TYPE_OPTIONS = [
