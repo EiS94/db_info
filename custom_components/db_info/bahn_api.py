@@ -16,7 +16,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-EFA_TRIP_URL = "https://bahnland-bayern.de/efa/XML_TRIP_REQUEST2"
+EFA_TRIP_URL = "http://www.efa-bw.de/nvbw/XML_TRIP_REQUEST2"
 
 # EFA MOT (Means of Transport) class mapping
 # class  1 = S-Bahn
