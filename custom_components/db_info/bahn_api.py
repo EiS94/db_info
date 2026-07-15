@@ -1,9 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import asyncio
 import logging
+import random
+import uuid
 
 import aiohttp
 
-from .Journey import Journey
+from .Journey import Journey, parse_trip
 from .Train import Train
 from .Stop import Stop
 from .const import (
@@ -16,7 +19,64 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-EFA_TRIP_URL = "http://www.efa-bw.de/nvbw/XML_TRIP_REQUEST2"
+# Several EFA (Elektronische Fahrplanauskunft) instances expose the same
+# XML_TRIP_REQUEST2 endpoint and can all answer DB-network trip requests.
+# Since any single instance can be temporarily unavailable or slow, all of
+# them are queried in parallel and the best usable response is used.
+EFA_APIS = [
+    {"name": "bahnland-bayern.de", "url": "https://bahnland-bayern.de/efa/XML_TRIP_REQUEST2"},
+    {"name": "efa.de", "url": "https://www.efa.de/hit-efa/XML_TRIP_REQUEST2"},
+    {"name": "efa-bw.de", "url": "http://www.efa-bw.de/nvbw/XML_TRIP_REQUEST2"},
+    {"name": "vrr.de", "url": "https://www.vrr.de/vrr-efa/XML_TRIP_REQUEST2"},
+]
+
+# Timeout for a single EFA endpoint. Requests run concurrently, so this is
+# the worst-case additional wait time, not a sum across all endpoints.
+_EFA_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=20)
+
+# The official bahn.de trip-planner API. It usually has the best/most
+# reliable real-time data of all sources, but is an internal API not meant
+# for external use, so it is queried with a rotating browser-like
+# User-Agent to reduce the chance of being blocked as bot traffic.
+DB_API_URL = "https://www.bahn.de/web/api/angebote/fahrplan"
+_DB_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=20)
+
+
+def _random_chrome_ua():
+    major = random.randint(126, 128)
+    patch = random.randint(6478, 6668)
+    build = random.randint(29, 234)
+    return (
+        f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{major}.0.{patch}.{build} Safari/537.36"
+    )
+
+
+def _random_firefox_ua():
+    major = random.randint(128, 130)
+    esr = "esr" if random.random() < 0.3 else ""
+    return (
+        f"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{major}.0) "
+        f"Gecko/20100101 Firefox/{major}.0{esr}"
+    )
+
+
+def _random_useragent():
+    if random.random() <= 0.2:
+        return _random_firefox_ua()
+    return _random_chrome_ua()
+
+# Some EFA instances (e.g. bahnland-bayern.de) reject requests that carry
+# aiohttp's default "Python/3.x aiohttp/3.x" User-Agent as bot traffic and
+# answer with HTTP 403. A browser-like User-Agent avoids that.
+_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
 
 # EFA MOT (Means of Transport) class mapping
 # class  1 = S-Bahn
@@ -97,6 +157,64 @@ def _build_mot_params(connection_type, custom_types=None):
         "includedMeans": "checkbox",
         **{f"inclMOT_{i}": "true" for i in range(0, 21)},
     }
+
+
+# Internal transport type → DB API "produktgattungen" value.
+# "SONSTIGE" has no equivalent category in the DB API and is omitted; a
+# custom selection consisting only of unmapped types falls back to "all".
+_TYPE_TO_PRODUKTGATTUNG = {
+    "SBAHN": "SBAHN",
+    "UBAHN": "UBAHN",
+    "TRAM": "TRAM",
+    "BUS": "BUS",
+    "SCHIFF": "SCHIFF",
+    "AST/RUFBUS": "ANRUFPFLICHTIG",
+    "ICE": "ICE",
+    "IC/EC": "EC_IC",
+    "NAHVERKEHR": "REGIONAL",
+}
+
+_PRODUKTGATTUNGEN_REGIONAL = [
+    "REGIONAL", "SBAHN", "BUS", "SCHIFF", "UBAHN", "TRAM", "ANRUFPFLICHTIG",
+]
+_PRODUKTGATTUNGEN_LONG_DISTANCE = ["ICE", "EC_IC", "IR"]
+_PRODUKTGATTUNGEN_ALL = _PRODUKTGATTUNGEN_LONG_DISTANCE + _PRODUKTGATTUNGEN_REGIONAL
+
+
+def _build_produktgattungen(connection_type, custom_types=None):
+    """Return list of "produktgattungen" for the DB API's given connection type."""
+    if connection_type == CONNECTION_CUSTOM and custom_types:
+        result = []
+        for t in custom_types:
+            value = _TYPE_TO_PRODUKTGATTUNG.get(t)
+            if value and value not in result:
+                result.append(value)
+        if result:
+            return result
+        # No usable mapping (e.g. only "SONSTIGE" selected) -> fall back to "all"
+
+    if connection_type == CONNECTION_LONG_DISTANCE:
+        return _PRODUKTGATTUNGEN_LONG_DISTANCE
+    if connection_type == CONNECTION_REGIONAL:
+        return _PRODUKTGATTUNGEN_REGIONAL
+    return _PRODUKTGATTUNGEN_ALL
+
+
+def convert_coordinates_to_db_format(coordinates):
+    """
+    :type coordinates: tuple[float, float, str]
+    :param coordinates: tuple of lat, lng coordinates, e.g. (50.0014936, 8.2591178)
+    :return: string of the coordinates in db-format: # Y=..@X=.. Coordinates (without decimal point, 6 decimal places must be specified)
+    """
+    lat_split = str(coordinates[0]).split(".")
+    dec = lat_split[1][0:6].ljust(6, "0")
+    lat = f"{lat_split[0]}{dec}"
+
+    lng_split = str(coordinates[1]).split(".")
+    dec = lng_split[1][0:6].ljust(6, "0")
+    lng = f"{lng_split[0]}{dec}"
+
+    return f"Y={lat}@X={lng}"
 
 
 def _parse_efa_time(iso_str):
@@ -221,6 +339,136 @@ def _parse_efa_response(data):
     return journeys
 
 
+async def _fetch_from_api(session, api, params):
+    """Query a single EFA API and parse its response into Journey objects.
+
+    Returns a dict {"name", "url", "journeys"} on success, or None if the
+    API was unreachable, returned invalid data, or yielded no journeys.
+    """
+    name = api["name"]
+    url = api["url"]
+
+    try:
+        async with session.get(
+                url,
+                params=params,
+                headers=_REQUEST_HEADERS,
+                timeout=_EFA_REQUEST_TIMEOUT,
+        ) as response:
+            response.raise_for_status()
+            json_data = await response.json(content_type=None)
+    except asyncio.TimeoutError:
+        _LOGGER.warning(
+            "EFA API '%s' (%s) not reachable: timed out after %ss",
+            name, url, _EFA_REQUEST_TIMEOUT.total,
+        )
+        return None
+    except aiohttp.ClientError as err:
+        _LOGGER.warning(
+            "EFA API '%s' (%s) not reachable: %s: %s",
+            name, url, type(err).__name__, err or "no further details",
+        )
+        return None
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.warning(
+            "EFA API '%s' (%s) returned invalid data: %s: %s",
+            name, url, type(err).__name__, err or "no further details",
+        )
+        return None
+
+    try:
+        journeys = _parse_efa_response(json_data)
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.warning("Error parsing response from '%s': %s", name, err)
+        return None
+
+    if not journeys:
+        _LOGGER.debug("EFA API '%s' returned no journeys", name)
+        return None
+
+    return {"name": name, "url": url, "journeys": journeys}
+
+
+def _score_result(result):
+    """Score a result set from one API for comparison against the others.
+
+    Lower is better. Results that contain real-time data are preferred
+    over purely scheduled ones; among results of the same real-time
+    status, the one with the shortest (fastest) journey wins.
+    """
+    journeys = result["journeys"]
+    has_realtime = any(
+        journey.get_departure_time_real() is not None
+        or journey.get_arrival_time_real() is not None
+        for journey in journeys
+    )
+    fastest_duration = min(
+        (journey.get_duration() for journey in journeys), default=timedelta.max
+    )
+    return (0 if has_realtime else 1, fastest_duration)
+
+
+async def _fetch_from_db_api(session, data):
+    """Query the official bahn.de trip planner API.
+
+    Uses a rotating browser-like User-Agent and a fresh correlation id per
+    request, since this is an internal API not meant for external clients.
+    Returns a dict {"name", "url", "journeys"} on success, or None if the
+    API was unreachable, returned invalid data, or yielded no journeys -
+    matching the contract of _fetch_from_api so both can be scored together.
+    """
+    name = "bahn.de"
+    url = DB_API_URL
+    correlation_id = f"{uuid.uuid4()}_{uuid.uuid4()}"
+    headers = {
+        "User-Agent": _random_useragent(),
+        "Accept": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        "Referer": "https://www.bahn.de/buchung/fahrplan/suche",
+        "Origin": "https://www.bahn.de",
+        "x-correlation-id": correlation_id,
+    }
+
+    try:
+        async with session.post(
+                url, headers=headers, json=data, timeout=_DB_REQUEST_TIMEOUT
+        ) as response:
+            response.raise_for_status()
+            json_data = await response.json()
+    except asyncio.TimeoutError:
+        _LOGGER.warning(
+            "DB API '%s' (%s) not reachable: timed out after %ss",
+            name, url, _DB_REQUEST_TIMEOUT.total,
+        )
+        return None
+    except aiohttp.ClientError as err:
+        _LOGGER.warning(
+            "DB API '%s' (%s) not reachable: %s: %s",
+            name, url, type(err).__name__, err or "no further details",
+        )
+        return None
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.warning(
+            "DB API '%s' (%s) returned invalid data: %s: %s",
+            name, url, type(err).__name__, err or "no further details",
+        )
+        return None
+
+    try:
+        journeys = [
+            parse_trip(journey) for journey in json_data.get("verbindungen", [])
+        ]
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.warning("Error parsing response from '%s': %s", name, err)
+        return None
+
+    if not journeys:
+        _LOGGER.debug("DB API '%s' returned no journeys", name)
+        return None
+
+    return {"name": name, "url": url, "journeys": journeys}
+
+
 async def get_trip_info(
         start_coordinates,
         destination_coordinates,
@@ -228,7 +476,11 @@ async def get_trip_info(
         custom_datetime=None,
         transport_types=None,
 ):
-    _LOGGER.debug("Fetching trip info from EFA API (bahnland-bayern.de)")
+    total_sources = len(EFA_APIS) + 1  # 4 EFA instances + bahn.de
+    _LOGGER.debug(
+        "Fetching trip info from %d APIs in parallel (%d EFA + bahn.de)",
+        total_sources, len(EFA_APIS),
+    )
 
     # Resolve departure time
     if custom_datetime:
@@ -285,32 +537,68 @@ async def get_trip_info(
         **mot_params,
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                    EFA_TRIP_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                response.raise_for_status()
-                json_data = await response.json(content_type=None)
-    except aiohttp.ClientError as err:
-        _LOGGER.error("Error fetching data from EFA API: %s", err)
+    db_data = {
+        "abfahrtsHalt": convert_coordinates_to_db_format(start_coordinates),
+        "anfrageZeitpunkt": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "ankunftsHalt": convert_coordinates_to_db_format(destination_coordinates),
+        "ankunftSuche": "ABFAHRT",
+        "klasse": "KLASSE_2",
+        "produktgattungen": _build_produktgattungen(connection_type, transport_types),
+        "reisende": [
+            {
+                "typ": "ERWACHSENER",
+                "ermaessigungen": [
+                    {"art": "KEINE_ERMAESSIGUNG", "klasse": "KLASSENLOS"}
+                ],
+                "alter": [],
+                "anzahl": 1,
+            }
+        ],
+        "schnelleVerbindungen": True,
+        "sitzplatzOnly": False,
+        "bikeCarriage": False,
+        "reservierungsKontingenteVorhanden": False,
+    }
+
+    async with aiohttp.ClientSession() as session:
+        tasks = [_fetch_from_api(session, api, params) for api in EFA_APIS]
+        tasks.append(_fetch_from_db_api(session, db_data))
+        results = await asyncio.gather(*tasks)
+
+    valid_results = [result for result in results if result]
+
+    if not valid_results:
+        _LOGGER.error(
+            "None of the %d APIs (EFA + bahn.de) returned usable data",
+            total_sources,
+        )
         return {"journeys": {}}
 
-    _LOGGER.debug("Parsing EFA response")
+    best = min(valid_results, key=_score_result)
+    best_score = _score_result(best)
+    has_realtime = best_score[0] == 0
+    fastest = best_score[1]
 
-    try:
-        journeys = _parse_efa_response(json_data)
-    except Exception as err:
-        _LOGGER.error("Error parsing EFA response: %s", err)
-        return {"journeys": {}}
+    _LOGGER.info(
+        "Using result from '%s' (%d/%d sources usable, realtime=%s, "
+        "fastest journey=%s)",
+        best["name"],
+        len(valid_results),
+        total_sources,
+        has_realtime,
+        fastest,
+    )
+
+    journeys = best["journeys"]
 
     json_output = {"journeys": {}}
     for i, journey in enumerate(journeys):
         json_output["journeys"][i] = journey.to_json()
 
     _LOGGER.info(
-        "Successfully fetched %d journeys from EFA API, timestamp: %f",
+        "Successfully fetched %d journeys (source: %s), timestamp: %f",
         len(journeys),
+        best["name"],
         time.timestamp(),
     )
 
