@@ -24,48 +24,132 @@ _LOGGER = logging.getLogger(__name__)
 # Since any single instance can be temporarily unavailable or slow, all of
 # them are queried in parallel and the best usable response is used.
 EFA_APIS = [
-    {"name": "bahnland-bayern.de", "url": "https://bahnland-bayern.de/efa/XML_TRIP_REQUEST2"},
-    {"name": "efa.de", "url": "https://www.efa.de/hit-efa/XML_TRIP_REQUEST2"},
-    {"name": "efa-bw.de", "url": "http://www.efa-bw.de/nvbw/XML_TRIP_REQUEST2"},
-    {"name": "vrr.de", "url": "https://www.vrr.de/vrr-efa/XML_TRIP_REQUEST2"},
+    {"name": "bahnland-bayern.de", "url": "https://bahnland-bayern.de/efa/XML_TRIP_REQUEST2", "bounds": None},
+    {"name": "efa.de", "url": "https://www.efa.de/hit-efa/XML_TRIP_REQUEST2", "bounds": None},
+    {"name": "efa-bw.de", "url": "http://www.efa-bw.de/nvbw/XML_TRIP_REQUEST2", "bounds": None},
+    {
+        "name": "vrr.de",
+        "url": "https://www.vrr.de/vrr-efa/XML_TRIP_REQUEST2",
+        # vrr.de appears to hang until timeout (instead of returning a fast
+        # error) for trips outside its home region, so it is only queried
+        # when origin AND destination roughly fall within North
+        # Rhine-Westphalia. Approximate bounding box, not the exact border.
+        "bounds": {"lat_min": 50.3, "lat_max": 52.6, "lon_min": 5.7, "lon_max": 9.5},
+    },
 ]
+
+
+def _in_bounds(coordinates, bounds):
+    """Check whether (lat, lon) coordinates fall within a bounding box.
+
+    bounds=None means "no restriction" (always in bounds).
+    """
+    if bounds is None:
+        return True
+    lat, lon = coordinates[0], coordinates[1]
+    return (
+        bounds["lat_min"] <= lat <= bounds["lat_max"]
+        and bounds["lon_min"] <= lon <= bounds["lon_max"]
+    )
 
 # Timeout for a single EFA endpoint. Requests run concurrently, so this is
 # the worst-case additional wait time, not a sum across all endpoints.
-_EFA_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=20)
+_EFA_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 # The official bahn.de trip-planner API. It usually has the best/most
 # reliable real-time data of all sources, but is an internal API not meant
 # for external use, so it is queried with a rotating browser-like
 # User-Agent to reduce the chance of being blocked as bot traffic.
 DB_API_URL = "https://www.bahn.de/web/api/angebote/fahrplan"
-_DB_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=20)
+_DB_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
+# Short timeout for the best-effort cookie warm-up - it must never be
+# allowed to eat into the overall latency budget the way a full 10s+10s
+# worst case would.
+_DB_WARMUP_TIMEOUT = aiohttp.ClientTimeout(total=5)
 
 
-def _random_chrome_ua():
+def _chrome_profile():
+    """A Chrome/Windows profile with headers that are consistent with each
+    other (matching sec-ch-ua major version, etc.) - a bare User-Agent
+    without matching Client-Hints headers is itself a bot signal."""
     major = random.randint(126, 128)
     patch = random.randint(6478, 6668)
     build = random.randint(29, 234)
-    return (
-        f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        f"AppleWebKit/537.36 (KHTML, like Gecko) "
-        f"Chrome/{major}.0.{patch}.{build} Safari/537.36"
-    )
+    return {
+        "user_agent": (
+            f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            f"AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"Chrome/{major}.0.{patch}.{build} Safari/537.36"
+        ),
+        "accept_language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+        # Real Chrome sends these Client-Hints headers on every request.
+        "client_hints": {
+            "sec-ch-ua": (
+                f'"Chromium";v="{major}", "Not)A;Brand";v="8", '
+                f'"Google Chrome";v="{major}"'
+            ),
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+        },
+    }
 
 
-def _random_firefox_ua():
+def _firefox_profile():
+    """A Firefox/Windows profile. Firefox does not send sec-ch-ua
+    Client-Hints headers at all, so sending them alongside a Firefox
+    User-Agent would itself be an inconsistency a bot filter can catch."""
     major = random.randint(128, 130)
     esr = "esr" if random.random() < 0.3 else ""
-    return (
-        f"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{major}.0) "
-        f"Gecko/20100101 Firefox/{major}.0{esr}"
-    )
+    return {
+        "user_agent": (
+            f"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{major}.0) "
+            f"Gecko/20100101 Firefox/{major}.0{esr}"
+        ),
+        "accept_language": "de-DE,de;q=0.8,en-US;q=0.5,en;q=0.3",
+        "client_hints": {},
+    }
 
 
-def _random_useragent():
-    if random.random() <= 0.2:
-        return _random_firefox_ua()
-    return _random_chrome_ua()
+def _random_browser_profile():
+    return _firefox_profile() if random.random() <= 0.2 else _chrome_profile()
+
+
+def _db_navigation_headers(profile):
+    """Headers for the 'warm-up' GET to the search page - looks like a
+    real top-level page load, so the session picks up bahn.de's session
+    cookie(s) before the API is called, same as a real browser would."""
+    return {
+        "User-Agent": profile["user_agent"],
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,"
+            "image/avif,image/webp,*/*;q=0.8"
+        ),
+        "Accept-Language": profile["accept_language"],
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        **profile["client_hints"],
+    }
+
+
+def _db_api_headers(profile, correlation_id):
+    """Headers for the actual XHR/fetch-style call to the trip API,
+    as if made from JS running on the bahn.de search page."""
+    return {
+        "User-Agent": profile["user_agent"],
+        "Accept": "application/json",
+        "Accept-Language": profile["accept_language"],
+        "Content-Type": "application/json; charset=utf-8",
+        "Referer": "https://www.bahn.de/buchung/fahrplan/suche",
+        "Origin": "https://www.bahn.de",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "x-correlation-id": correlation_id,
+        **profile["client_hints"],
+    }
 
 # Some EFA instances (e.g. bahnland-bayern.de) reject requests that carry
 # aiohttp's default "Python/3.x aiohttp/3.x" User-Agent as bot traffic and
@@ -392,42 +476,53 @@ async def _fetch_from_api(session, api, params):
 def _score_result(result):
     """Score a result set from one API for comparison against the others.
 
-    Lower is better. Results that contain real-time data are preferred
-    over purely scheduled ones; among results of the same real-time
-    status, the one with the shortest (fastest) journey wins.
+    Lower is better. Scoring is based on the *first* (soonest/next)
+    journey in the list only - that is the one that actually becomes
+    "Verbindung 1" in the sensors, so it's the one that matters for this
+    comparison. Looking at "any journey anywhere in the list" or the
+    shortest duration across the whole list (as done previously) could
+    pick an API because some journey much later in the list happened to
+    have real-time data or an unusually short duration, while the actual
+    next connection shown to the user had neither.
     """
-    journeys = result["journeys"]
-    has_realtime = any(
-        journey.get_departure_time_real() is not None
-        or journey.get_arrival_time_real() is not None
-        for journey in journeys
+    first_journey = result["journeys"][0]
+    has_realtime = (
+        first_journey.get_departure_time_real() is not None
+        or first_journey.get_arrival_time_real() is not None
     )
-    fastest_duration = min(
-        (journey.get_duration() for journey in journeys), default=timedelta.max
-    )
-    return (0 if has_realtime else 1, fastest_duration)
+    return (0 if has_realtime else 1, first_journey.get_duration())
 
 
 async def _fetch_from_db_api(session, data):
     """Query the official bahn.de trip planner API.
 
-    Uses a rotating browser-like User-Agent and a fresh correlation id per
+    Uses a full, internally-consistent browser profile (User-Agent +
+    matching Client-Hints/Accept-Language) and a fresh correlation id per
     request, since this is an internal API not meant for external clients.
-    Returns a dict {"name", "url", "journeys"} on success, or None if the
-    API was unreachable, returned invalid data, or yielded no journeys -
-    matching the contract of _fetch_from_api so both can be scored together.
+    Also performs a best-effort "warm-up" GET to the search page first, so
+    the session picks up bahn.de's session cookie(s) the same way a real
+    browser would before calling the API - if that fails, the actual
+    request is attempted anyway. Returns a dict {"name", "url", "journeys"}
+    on success, or None if the API was unreachable, returned invalid data,
+    or yielded no journeys - matching the contract of _fetch_from_api so
+    both can be scored together.
     """
     name = "bahn.de"
     url = DB_API_URL
     correlation_id = f"{uuid.uuid4()}_{uuid.uuid4()}"
-    headers = {
-        "User-Agent": _random_useragent(),
-        "Accept": "application/json",
-        "Content-Type": "application/json; charset=utf-8",
-        "Referer": "https://www.bahn.de/buchung/fahrplan/suche",
-        "Origin": "https://www.bahn.de",
-        "x-correlation-id": correlation_id,
-    }
+    profile = _random_browser_profile()
+
+    try:
+        async with session.get(
+                "https://www.bahn.de/buchung/fahrplan/suche",
+                headers=_db_navigation_headers(profile),
+                timeout=_DB_WARMUP_TIMEOUT,
+        ) as warmup_response:
+            await warmup_response.read()
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        pass  # best-effort only; proceed to the real request regardless
+
+    headers = _db_api_headers(profile, correlation_id)
 
     try:
         async with session.post(
@@ -476,10 +571,22 @@ async def get_trip_info(
         custom_datetime=None,
         transport_types=None,
 ):
-    total_sources = len(EFA_APIS) + 1  # 4 EFA instances + bahn.de
+    applicable_efa_apis = [
+        api for api in EFA_APIS
+        if _in_bounds(start_coordinates, api["bounds"])
+        and _in_bounds(destination_coordinates, api["bounds"])
+    ]
+    skipped_apis = [api["name"] for api in EFA_APIS if api not in applicable_efa_apis]
+    if skipped_apis:
+        _LOGGER.debug(
+            "Skipping %s: trip is outside their coverage area",
+            ", ".join(skipped_apis),
+        )
+
+    total_sources = len(applicable_efa_apis) + 1  # + bahn.de
     _LOGGER.debug(
         "Fetching trip info from %d APIs in parallel (%d EFA + bahn.de)",
-        total_sources, len(EFA_APIS),
+        total_sources, len(applicable_efa_apis),
     )
 
     # Resolve departure time
@@ -561,7 +668,7 @@ async def get_trip_info(
     }
 
     async with aiohttp.ClientSession() as session:
-        tasks = [_fetch_from_api(session, api, params) for api in EFA_APIS]
+        tasks = [_fetch_from_api(session, api, params) for api in applicable_efa_apis]
         tasks.append(_fetch_from_db_api(session, db_data))
         results = await asyncio.gather(*tasks)
 
@@ -577,23 +684,25 @@ async def get_trip_info(
     best = min(valid_results, key=_score_result)
     best_score = _score_result(best)
     has_realtime = best_score[0] == 0
-    fastest = best_score[1]
+    next_connection_duration = best_score[1]
 
     _LOGGER.info(
-        "Using result from '%s' (%d/%d sources usable, realtime=%s, "
-        "fastest journey=%s)",
+        "Using result from '%s' (%d/%d sources usable, next connection: "
+        "realtime=%s, duration=%s)",
         best["name"],
         len(valid_results),
         total_sources,
         has_realtime,
-        fastest,
+        next_connection_duration,
     )
 
     journeys = best["journeys"]
 
     json_output = {"journeys": {}}
     for i, journey in enumerate(journeys):
-        json_output["journeys"][i] = journey.to_json()
+        journey_json = journey.to_json()
+        journey_json["Source"] = best["name"]
+        json_output["journeys"][i] = journey_json
 
     _LOGGER.info(
         "Successfully fetched %d journeys (source: %s), timestamp: %f",
