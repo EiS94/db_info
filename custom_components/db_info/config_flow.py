@@ -1,3 +1,5 @@
+import logging
+
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -12,6 +14,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
+from .bahn_api import get_trip_info
 from .const import (
     ALL_TRANSPORT_TYPES,
     CONF_CONNECTION_TYPE,
@@ -26,6 +29,8 @@ from .const import (
     DOMAIN,
     TRANSPORT_TYPES_ALL,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 # Human-readable labels for individual transport types
 TRANSPORT_TYPE_LABELS = {
@@ -120,6 +125,43 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         self._data = {}
 
+    async def _test_connection(
+        self, start_entity_id, destination_entity_id, connection_type, transport_types=None
+    ):
+        """Try a real trip request to make sure at least one backend is reachable.
+
+        Returns True if at least one source returned usable journeys,
+        False otherwise (including if the entities have no coordinates
+        yet, e.g. a person who hasn't reported a location).
+        """
+        start_state = self.hass.states.get(start_entity_id)
+        dest_state = self.hass.states.get(destination_entity_id)
+        if start_state is None or dest_state is None:
+            return False
+
+        start_attrs = start_state.attributes
+        dest_attrs = dest_state.attributes
+        if "latitude" not in start_attrs or "longitude" not in start_attrs:
+            return False
+        if "latitude" not in dest_attrs or "longitude" not in dest_attrs:
+            return False
+
+        start_coords = (start_attrs["latitude"], start_attrs["longitude"])
+        dest_coords = (dest_attrs["latitude"], dest_attrs["longitude"])
+
+        try:
+            result = await get_trip_info(
+                start_coords,
+                dest_coords,
+                connection_type=connection_type,
+                transport_types=transport_types,
+            )
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Error testing connection during config flow")
+            return False
+
+        return bool(result.get("journeys"))
+
     async def async_step_user(self, user_input=None):
         errors = {}
 
@@ -137,27 +179,40 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "no_entities_with_coordinates"
 
         if user_input is not None and not errors:
+            await self.async_set_unique_id(
+                f"{user_input[CONF_START]}::{user_input[CONF_DESTINATION]}"
+            )
+            self._abort_if_unique_id_configured()
+
             self._data = user_input
 
             if user_input.get(CONF_CONNECTION_TYPE) == CONNECTION_CUSTOM:
                 return await self.async_step_custom_types()
 
-            start_state = self.hass.states.get(user_input[CONF_START])
-            dest_state = self.hass.states.get(user_input[CONF_DESTINATION])
-            start_name = start_state.name if start_state else user_input[CONF_START]
-            dest_name = dest_state.name if dest_state else user_input[CONF_DESTINATION]
-
-            return self.async_create_entry(
-                title=f"{start_name} -> {dest_name}",
-                data={
-                    CONF_START: user_input[CONF_START],
-                    CONF_DESTINATION: user_input[CONF_DESTINATION],
-                    CONF_CONNECTION_TYPE: user_input[CONF_CONNECTION_TYPE],
-                },
-                options={
-                    CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, 10)
-                },
+            connected = await self._test_connection(
+                user_input[CONF_START],
+                user_input[CONF_DESTINATION],
+                user_input[CONF_CONNECTION_TYPE],
             )
+            if not connected:
+                errors["base"] = "cannot_connect"
+            else:
+                start_state = self.hass.states.get(user_input[CONF_START])
+                dest_state = self.hass.states.get(user_input[CONF_DESTINATION])
+                start_name = start_state.name if start_state else user_input[CONF_START]
+                dest_name = dest_state.name if dest_state else user_input[CONF_DESTINATION]
+
+                return self.async_create_entry(
+                    title=f"{start_name} -> {dest_name}",
+                    data={
+                        CONF_START: user_input[CONF_START],
+                        CONF_DESTINATION: user_input[CONF_DESTINATION],
+                        CONF_CONNECTION_TYPE: user_input[CONF_CONNECTION_TYPE],
+                    },
+                    options={
+                        CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, 10)
+                    },
+                )
 
         return self.async_show_form(
             step_id="user",
@@ -166,28 +221,40 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_custom_types(self, user_input=None):
-        if user_input is not None:
-            start_state = self.hass.states.get(self._data[CONF_START])
-            dest_state = self.hass.states.get(self._data[CONF_DESTINATION])
-            start_name = start_state.name if start_state else self._data[CONF_START]
-            dest_name = dest_state.name if dest_state else self._data[CONF_DESTINATION]
+        errors = {}
 
-            return self.async_create_entry(
-                title=f"{start_name} -> {dest_name}",
-                data={
-                    CONF_START: self._data[CONF_START],
-                    CONF_DESTINATION: self._data[CONF_DESTINATION],
-                    CONF_CONNECTION_TYPE: CONNECTION_CUSTOM,
-                    CONF_TRANSPORT_TYPES: user_input[CONF_TRANSPORT_TYPES],
-                },
-                options={
-                    CONF_UPDATE_INTERVAL: self._data.get(CONF_UPDATE_INTERVAL, 10)
-                },
+        if user_input is not None:
+            connected = await self._test_connection(
+                self._data[CONF_START],
+                self._data[CONF_DESTINATION],
+                CONNECTION_CUSTOM,
+                transport_types=user_input[CONF_TRANSPORT_TYPES],
             )
+            if not connected:
+                errors["base"] = "cannot_connect"
+            else:
+                start_state = self.hass.states.get(self._data[CONF_START])
+                dest_state = self.hass.states.get(self._data[CONF_DESTINATION])
+                start_name = start_state.name if start_state else self._data[CONF_START]
+                dest_name = dest_state.name if dest_state else self._data[CONF_DESTINATION]
+
+                return self.async_create_entry(
+                    title=f"{start_name} -> {dest_name}",
+                    data={
+                        CONF_START: self._data[CONF_START],
+                        CONF_DESTINATION: self._data[CONF_DESTINATION],
+                        CONF_CONNECTION_TYPE: CONNECTION_CUSTOM,
+                        CONF_TRANSPORT_TYPES: user_input[CONF_TRANSPORT_TYPES],
+                    },
+                    options={
+                        CONF_UPDATE_INTERVAL: self._data.get(CONF_UPDATE_INTERVAL, 10)
+                    },
+                )
 
         return self.async_show_form(
             step_id="custom_types",
             data_schema=_build_custom_schema(),
+            errors=errors,
         )
 
     @staticmethod

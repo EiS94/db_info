@@ -9,13 +9,23 @@
 
 ### 📌 What is DB Info?
 
-This Home Assistant integration provides **five sensors per entry**, each showing the **upcoming public transport connections** between two locations – including **real-time updates**. 
+This Home Assistant integration provides **five sensors per entry**, each showing the **upcoming public transport connections** between two locations – including **real-time updates**.
 
 For example, you can get connections that you often need (e.g., home → main station) as a sensor, but you can also always see dynamic connections (e.g., route from my current location to home).
 
 <img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/db-info-card.gif" alt="DB Info Card Preview" width="500"/>
 
-> Note: It works **exclusively within the Deutsche Bahn (DB) network**.
+> Covers public transport connections across Germany – regional and long-distance.
+
+---
+
+### 🔀 How connections are found
+
+Instead of relying on a single API, DB Info queries **several public transport data sources in parallel** for every request:
+
+Four regional EFA instances, automatically restricted to the ones actually covering the requested route
+
+Out of the box, no extra setup is required — the four EFA sources work immediately after installation. Whichever source responds with a usable connection wins, preferring **real-time data** first and the **shortest travel time** second. If a source is unavailable or blocked, the others take over automatically — you won't notice unless you check the `Source` attribute on a sensor, which always shows which backend served that particular connection.
 
 ---
 
@@ -163,6 +173,22 @@ card_mod:
 
 ---
 
+### 🛠️ Services
+
+DB Info provides one action, registered globally (not per entry):
+
+| Service | Description |
+|---|---|
+| `db_info.refresh_all` | Manually refreshes **all** DB Info entries at once, instead of waiting for their individual update intervals. Useful for e.g. an automation right before you leave the house. |
+
+Call it under **Developer Tools → Actions**, search for "Refresh all connections", or from YAML:
+
+```yaml
+action: db_info.refresh_all
+```
+
+---
+
 ### 📥 Installation
 
 #### 🔹Via [HACS](https://hacs.xyz/) 
@@ -170,6 +196,15 @@ card_mod:
 
 #### 🔹 Manual Installation
 Copy the folder: `custom_components/db_info` into your Home Assistant directory: `config/custom_components`
+
+---
+
+### 🗑️ Removal
+
+1. Go to **Settings → Devices & Services → DB Info**, open each entry and remove it (this also removes its sensors, button, switch and datetime entity).
+2. If installed via HACS, remove it there too: **HACS → Integrations → DB Info → ⋮ → Remove**.
+3. If installed manually, delete the `custom_components/db_info` folder from your Home Assistant config directory.
+4. Restart Home Assistant.
 
 ---
 

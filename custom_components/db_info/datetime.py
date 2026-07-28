@@ -13,6 +13,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
+from .entity import build_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,10 +30,13 @@ async def async_setup_entry(
 class DBDepartureDateTimeEntity(DateTimeEntity, RestoreEntity):
     """Representation of a departure time datetime entity."""
 
+    _attr_has_entity_name = True
+
     def __init__(self, entry: ConfigEntry) -> None:
         """Initialize the datetime entity."""
         self._entry = entry
-        self._attr_name = f"{entry.title} Abfahrtszeit"
+        self._attr_device_info = build_device_info(entry)
+        self._attr_name = "Abfahrtszeit"
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_departure_time"
         self._attr_icon = "mdi:clock-outline"
 

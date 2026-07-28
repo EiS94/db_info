@@ -1,11 +1,12 @@
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, DEFAULT_MAX_CONNECTIONS
+from .const import DEFAULT_MAX_CONNECTIONS
+from .entity import build_device_info
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
     sensors = []
 
     for i in range(DEFAULT_MAX_CONNECTIONS):
@@ -15,13 +16,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class DBTrainSensor(CoordinatorEntity, Entity):
+    _attr_has_entity_name = True
+
     def __init__(self, coordinator, entry, index):
         super().__init__(coordinator)
         self.entry = entry
         self.index = index
         self._attr_icon = "mdi:train"
 
-        self._attr_name = f"{entry.title} Verbindung {index + 1}"
+        self._attr_device_info = build_device_info(entry)
+        self._attr_name = f"Verbindung {index + 1}"
         self._attr_unique_id = f"db_info_{entry.entry_id}_{index + 1}"
 
     @property

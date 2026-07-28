@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN
+from .entity import build_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,10 +28,13 @@ async def async_setup_entry(
 class DBUseCustomTimeSwitch(SwitchEntity, RestoreEntity):
     """Representation of a switch to enable/disable custom departure time."""
 
+    _attr_has_entity_name = True
+
     def __init__(self, entry: ConfigEntry) -> None:
         """Initialize the switch entity."""
         self._entry = entry
-        self._attr_name = f"{entry.title} Benutzerdefinierte Zeit verwenden"
+        self._attr_device_info = build_device_info(entry)
+        self._attr_name = "Benutzerdefinierte Zeit verwenden"
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_custom_time"
         self._is_on = False
 
@@ -58,7 +62,7 @@ class DBUseCustomTimeSwitch(SwitchEntity, RestoreEntity):
         _LOGGER.debug("Custom departure time enabled")
 
         # Trigger coordinator refresh to use the custom time
-        coordinator = self.hass.data[DOMAIN][self._entry.entry_id]
+        coordinator = self._entry.runtime_data
         await coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
@@ -68,5 +72,5 @@ class DBUseCustomTimeSwitch(SwitchEntity, RestoreEntity):
         _LOGGER.debug("Custom departure time disabled")
 
         # Trigger coordinator refresh to use current time
-        coordinator = self.hass.data[DOMAIN][self._entry.entry_id]
+        coordinator = self._entry.runtime_data
         await coordinator.async_request_refresh()
