@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DB Info einrichten",
+        "data": {
+          "Startpunkt": "Startpunkt",
+          "Ziel": "Ziel",
+          "Verkehrsmittel": "Verkehrsmittel",
+          "Update Intervall": "Update-Intervall (Minuten)"
+        }
+      },
+      "custom_types": {
+        "title": "Verkehrsmittel auswählen",
+        "data": {
+          "Verkehrsmittel_Custom": "Verkehrsmittel"
+        }
+      }
+    },
+    "error": {
+      "no_entities_with_coordinates": "Keine Person- oder Zone-Entitäten mit Koordinaten gefunden.",
+      "cannot_connect": "Es konnte keine Verbindung für diese Route ermittelt werden. Prüfe Start/Ziel und versuche es erneut."
+    },
+    "abort": {
+      "already_configured": "Für diese Start-Ziel-Kombination existiert bereits ein Eintrag."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "Verkehrsmittel": "Verkehrsmittel",
+          "Update Intervall": "Update-Intervall (Minuten)"
+        }
+      },
+      "custom_types": {
+        "data": {
+          "Verkehrsmittel_Custom": "Verkehrsmittel"
+        }
+      }
+    }
+  }
+}
