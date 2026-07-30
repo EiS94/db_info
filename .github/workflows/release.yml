@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 4.2.0 (no leading 'v')"
+        required: true
+        type: string
+      release_notes:
+        description: "Optional custom release notes (shown above the auto-generated changelog). Leave empty to only use auto-generated notes."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Bump manifest.json version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          jq --arg version "$VERSION" '.version = $version' \
+            custom_components/db_info/manifest.json > tmp.json
+          mv tmp.json custom_components/db_info/manifest.json
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add custom_components/db_info/manifest.json
+          git commit -m "Bump version to ${{ inputs.version }}"
+          git push
+
+      - name: Create tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          CUSTOM_NOTES: ${{ inputs.release_notes }}
+        run: |
+          TAG="v${VERSION}"
+
+          # Always fetch GitHub's auto-generated changelog (PRs/commits since
+          # the last release), so it's available whether or not custom notes
+          # were also provided.
+          AUTO_NOTES=$(gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="$TAG" -q .body)
+
+          if [ -n "$CUSTOM_NOTES" ]; then
+            printf '%s\n\n---\n\n%s\n' "$CUSTOM_NOTES" "$AUTO_NOTES" > notes.md
+          else
+            printf '%s\n' "$AUTO_NOTES" > notes.md
+          fi
+
+          gh release create "$TAG" --title "$TAG" --notes-file notes.md
