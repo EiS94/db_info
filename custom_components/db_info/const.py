@@ -7,10 +7,13 @@ CONF_START = "Startpunkt"
 CONF_DESTINATION = "Ziel"
 CONF_UPDATE_INTERVAL = "Update Intervall"
 CONF_CONNECTION_TYPE = "Verkehrsmittel"
+CONF_MAX_TRANSFERS = "Max_Umstiege"
 
 # Default values
 DEFAULT_UPDATE_INTERVAL = 10
 DEFAULT_MAX_CONNECTIONS = 5
+# None = unbegrenzt (aktuelles/bisheriges Verhalten)
+DEFAULT_MAX_TRANSFERS = None
 
 # Connection types
 CONNECTION_ALL = "all"

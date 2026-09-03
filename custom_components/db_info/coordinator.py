@@ -14,11 +14,13 @@ from .bahn_api import get_trip_info
 from .const import (
     CONF_CONNECTION_TYPE,
     CONF_DESTINATION,
+    CONF_MAX_TRANSFERS,
     CONF_START,
     CONF_TRANSPORT_TYPES,
     CONF_UPDATE_INTERVAL,
     CONNECTION_ALL,
     CONNECTION_CUSTOM,
+    DEFAULT_MAX_TRANSFERS,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
 )
@@ -128,12 +130,18 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
 
             custom_datetime = self._get_custom_departure_time()
 
+            max_transfers = entry.options.get(
+                CONF_MAX_TRANSFERS,
+                entry.data.get(CONF_MAX_TRANSFERS, DEFAULT_MAX_TRANSFERS),
+            )
+
             return await get_trip_info(
                 start_coords,
                 dest_coords,
                 connection_type=connection_type,
                 custom_datetime=custom_datetime,
                 transport_types=transport_types,
+                max_transfers=max_transfers,
             )
 
         except UpdateFailed:

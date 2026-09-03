@@ -19,6 +19,7 @@ from .const import (
     ALL_TRANSPORT_TYPES,
     CONF_CONNECTION_TYPE,
     CONF_DESTINATION,
+    CONF_MAX_TRANSFERS,
     CONF_START,
     CONF_TRANSPORT_TYPES,
     CONF_UPDATE_INTERVAL,
@@ -78,6 +79,9 @@ def _build_main_schema(valid_inputs):
             vol.Optional(CONF_UPDATE_INTERVAL, default=10): NumberSelector(
                 NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
             ),
+            vol.Optional(CONF_MAX_TRANSFERS): NumberSelector(
+                NumberSelectorConfig(min=0, max=9, mode=NumberSelectorMode.BOX)
+            ),
         }
     )
 
@@ -99,24 +103,32 @@ def _build_custom_schema(current_types=None):
     )
 
 
-def _build_options_schema(current_connection_type, current_interval):
-    return vol.Schema(
-        {
-            vol.Required(
-                CONF_CONNECTION_TYPE, default=current_connection_type
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=CONNECTION_TYPE_OPTIONS,
-                    mode="dropdown",
-                )
-            ),
-            vol.Required(
-                CONF_UPDATE_INTERVAL, default=current_interval
-            ): NumberSelector(
-                NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
-            ),
-        }
-    )
+def _build_options_schema(current_connection_type, current_interval, current_max_transfers=None):
+    schema = {
+        vol.Required(
+            CONF_CONNECTION_TYPE, default=current_connection_type
+        ): SelectSelector(
+            SelectSelectorConfig(
+                options=CONNECTION_TYPE_OPTIONS,
+                mode="dropdown",
+            )
+        ),
+        vol.Required(
+            CONF_UPDATE_INTERVAL, default=current_interval
+        ): NumberSelector(
+            NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
+        ),
+    }
+    # Optional field: leave empty to allow any number of transfers (default).
+    if current_max_transfers is None:
+        schema[vol.Optional(CONF_MAX_TRANSFERS)] = NumberSelector(
+            NumberSelectorConfig(min=0, max=9, mode=NumberSelectorMode.BOX)
+        )
+    else:
+        schema[vol.Optional(CONF_MAX_TRANSFERS, default=current_max_transfers)] = NumberSelector(
+            NumberSelectorConfig(min=0, max=9, mode=NumberSelectorMode.BOX)
+        )
+    return vol.Schema(schema)
 
 
 class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -126,7 +138,8 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._data = {}
 
     async def _test_connection(
-        self, start_entity_id, destination_entity_id, connection_type, transport_types=None
+        self, start_entity_id, destination_entity_id, connection_type,
+        transport_types=None, max_transfers=None,
     ):
         """Try a real trip request to make sure at least one backend is reachable.
 
@@ -155,6 +168,7 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 dest_coords,
                 connection_type=connection_type,
                 transport_types=transport_types,
+                max_transfers=max_transfers,
             )
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("Error testing connection during config flow")
@@ -193,6 +207,7 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input[CONF_START],
                 user_input[CONF_DESTINATION],
                 user_input[CONF_CONNECTION_TYPE],
+                max_transfers=user_input.get(CONF_MAX_TRANSFERS),
             )
             if not connected:
                 errors["base"] = "cannot_connect"
@@ -210,7 +225,8 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_CONNECTION_TYPE: user_input[CONF_CONNECTION_TYPE],
                     },
                     options={
-                        CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, 10)
+                        CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, 10),
+                        CONF_MAX_TRANSFERS: user_input.get(CONF_MAX_TRANSFERS),
                     },
                 )
 
@@ -229,6 +245,7 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._data[CONF_DESTINATION],
                 CONNECTION_CUSTOM,
                 transport_types=user_input[CONF_TRANSPORT_TYPES],
+                max_transfers=self._data.get(CONF_MAX_TRANSFERS),
             )
             if not connected:
                 errors["base"] = "cannot_connect"
@@ -247,7 +264,8 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_TRANSPORT_TYPES: user_input[CONF_TRANSPORT_TYPES],
                     },
                     options={
-                        CONF_UPDATE_INTERVAL: self._data.get(CONF_UPDATE_INTERVAL, 10)
+                        CONF_UPDATE_INTERVAL: self._data.get(CONF_UPDATE_INTERVAL, 10),
+                        CONF_MAX_TRANSFERS: self._data.get(CONF_MAX_TRANSFERS),
                     },
                 )
 
@@ -275,6 +293,10 @@ class DBInfoOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_CONNECTION_TYPE,
             self.config_entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_ALL),
         )
+        current_max_transfers = self.config_entry.options.get(
+            CONF_MAX_TRANSFERS,
+            self.config_entry.data.get(CONF_MAX_TRANSFERS, None),
+        )
 
         if user_input is not None:
             self._options = user_input
@@ -286,7 +308,9 @@ class DBInfoOptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=_build_options_schema(current_connection_type, current_interval),
+            data_schema=_build_options_schema(
+                current_connection_type, current_interval, current_max_transfers
+            ),
         )
 
     async def async_step_custom_types(self, user_input=None):

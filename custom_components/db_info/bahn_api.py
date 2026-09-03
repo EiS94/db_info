@@ -570,6 +570,7 @@ async def get_trip_info(
         connection_type="all",
         custom_datetime=None,
         transport_types=None,
+        max_transfers=None,
 ):
     applicable_efa_apis = [
         api for api in EFA_APIS
@@ -643,6 +644,10 @@ async def get_trip_info(
         "serverInfo": "0",
         **mot_params,
     }
+    if max_transfers is not None:
+        # EFA: 0 = Direktverbindungen only, 1, 2, ... = max. Anzahl Umstiege.
+        # Requires ptOptionsActive=1 (already set above).
+        params["maxChanges"] = str(max_transfers)
 
     db_data = {
         "abfahrtsHalt": convert_coordinates_to_db_format(start_coordinates),
@@ -666,6 +671,9 @@ async def get_trip_info(
         "bikeCarriage": False,
         "reservierungsKontingenteVorhanden": False,
     }
+    if max_transfers is not None:
+        # bahn.de/vendo API: 0 = Direktverbindungen only, 1, 2, ... = max. Anzahl Umstiege.
+        db_data["maxUmstiege"] = max_transfers
 
     async with aiohttp.ClientSession() as session:
         tasks = [_fetch_from_api(session, api, params) for api in applicable_efa_apis]
@@ -697,6 +705,12 @@ async def get_trip_info(
     )
 
     journeys = best["journeys"]
+
+    if max_transfers is not None:
+        journeys = [
+            journey for journey in journeys
+            if journey.get_number_of_train_changes() <= max_transfers
+        ]
 
     json_output = {"journeys": {}}
     for i, journey in enumerate(journeys):

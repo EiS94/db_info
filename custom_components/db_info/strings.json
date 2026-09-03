@@ -7,7 +7,8 @@
           "Startpunkt": "Startpunkt",
           "Ziel": "Ziel",
           "Verkehrsmittel": "Verkehrsmittel",
-          "Update Intervall": "Update-Intervall (Minuten)"
+          "Update Intervall": "Update-Intervall (Minuten)",
+          "Max_Umstiege": "Max. Anzahl Umstiege (leer = unbegrenzt)"
         }
       },
       "custom_types": {
@@ -30,7 +31,8 @@
       "init": {
         "data": {
           "Verkehrsmittel": "Verkehrsmittel",
-          "Update Intervall": "Update-Intervall (Minuten)"
+          "Update Intervall": "Update-Intervall (Minuten)",
+          "Max_Umstiege": "Max. Anzahl Umstiege (leer = unbegrenzt)"
         }
       },
       "custom_types": {
