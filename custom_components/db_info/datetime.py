@@ -28,7 +28,11 @@ async def async_setup_entry(
 
 
 class DBDepartureDateTimeEntity(DateTimeEntity, RestoreEntity):
-    """Representation of a departure time datetime entity."""
+    """Representation of the trip time datetime entity.
+
+    Used either as a departure or an arrival time, depending on the
+    "Ankunftszeit verwenden" switch (see switch.py).
+    """
 
     _attr_has_entity_name = True
 
@@ -36,7 +40,9 @@ class DBDepartureDateTimeEntity(DateTimeEntity, RestoreEntity):
         """Initialize the datetime entity."""
         self._entry = entry
         self._attr_device_info = build_device_info(entry)
-        self._attr_name = "Abfahrtszeit"
+        self._attr_name = "Reisezeit"
+        # unique_id intentionally left as "_departure_time" so existing
+        # entity_ids and automations referencing this entity keep working.
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_departure_time"
         self._attr_icon = "mdi:clock-outline"
 
@@ -69,7 +75,7 @@ class DBDepartureDateTimeEntity(DateTimeEntity, RestoreEntity):
             value = dt_util.as_local(value)
         self._attr_native_value = value
         self.async_write_ha_state()
-        _LOGGER.debug(f"Departure time set to: {value}")
+        _LOGGER.debug(f"Reisezeit set to: {value}")
 
     @property
     def native_value(self) -> datetime | None:

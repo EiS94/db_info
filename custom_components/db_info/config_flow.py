@@ -54,6 +54,37 @@ CONNECTION_TYPE_OPTIONS = [
     {"value": CONNECTION_CUSTOM, "label": "Benutzerdefiniert \u2026"},
 ]
 
+# Sentinel used for the "no restriction" choice in the max-transfers dropdown.
+# NOTE: deliberately NOT implemented as an empty/optional NumberSelector.
+# HA's frontend form renderer initializes unset optional NumberSelector
+# fields to 0 rather than leaving them empty, so an "empty = unlimited"
+# design silently saves 0 (= direct connections only) whenever the options
+# form is submitted without the user touching the field. A SelectSelector
+# with an explicit default avoids that ambiguity entirely.
+MAX_TRANSFERS_UNLIMITED = "unbegrenzt"
+
+MAX_TRANSFERS_OPTIONS = [
+    {"value": MAX_TRANSFERS_UNLIMITED, "label": "Unbegrenzt"},
+] + [
+    {"value": str(i), "label": f"Max. {i} Umstieg{'e' if i != 1 else ''}"}
+    for i in range(10)
+]
+
+
+def _max_transfers_to_option(max_transfers):
+    """Convert the stored value (None or int) to a dropdown option string."""
+    if max_transfers is None:
+        return MAX_TRANSFERS_UNLIMITED
+    return str(max_transfers)
+
+
+def _option_to_max_transfers(option):
+    """Convert a submitted dropdown option string back to None or int."""
+    if option is None or option == MAX_TRANSFERS_UNLIMITED:
+        return None
+    return int(option)
+
+
 TRANSPORT_TYPE_OPTIONS = [
     {"value": k, "label": v} for k, v in TRANSPORT_TYPE_LABELS.items()
 ]
@@ -79,8 +110,13 @@ def _build_main_schema(valid_inputs):
             vol.Optional(CONF_UPDATE_INTERVAL, default=10): NumberSelector(
                 NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
             ),
-            vol.Optional(CONF_MAX_TRANSFERS): NumberSelector(
-                NumberSelectorConfig(min=0, max=9, mode=NumberSelectorMode.BOX)
+            vol.Optional(
+                CONF_MAX_TRANSFERS, default=MAX_TRANSFERS_UNLIMITED
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=MAX_TRANSFERS_OPTIONS,
+                    mode="dropdown",
+                )
             ),
         }
     )
@@ -104,31 +140,32 @@ def _build_custom_schema(current_types=None):
 
 
 def _build_options_schema(current_connection_type, current_interval, current_max_transfers=None):
-    schema = {
-        vol.Required(
-            CONF_CONNECTION_TYPE, default=current_connection_type
-        ): SelectSelector(
-            SelectSelectorConfig(
-                options=CONNECTION_TYPE_OPTIONS,
-                mode="dropdown",
-            )
-        ),
-        vol.Required(
-            CONF_UPDATE_INTERVAL, default=current_interval
-        ): NumberSelector(
-            NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
-        ),
-    }
-    # Optional field: leave empty to allow any number of transfers (default).
-    if current_max_transfers is None:
-        schema[vol.Optional(CONF_MAX_TRANSFERS)] = NumberSelector(
-            NumberSelectorConfig(min=0, max=9, mode=NumberSelectorMode.BOX)
-        )
-    else:
-        schema[vol.Optional(CONF_MAX_TRANSFERS, default=current_max_transfers)] = NumberSelector(
-            NumberSelectorConfig(min=0, max=9, mode=NumberSelectorMode.BOX)
-        )
-    return vol.Schema(schema)
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_CONNECTION_TYPE, default=current_connection_type
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=CONNECTION_TYPE_OPTIONS,
+                    mode="dropdown",
+                )
+            ),
+            vol.Required(
+                CONF_UPDATE_INTERVAL, default=current_interval
+            ): NumberSelector(
+                NumberSelectorConfig(min=1, max=60, mode=NumberSelectorMode.BOX)
+            ),
+            vol.Optional(
+                CONF_MAX_TRANSFERS,
+                default=_max_transfers_to_option(current_max_transfers),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=MAX_TRANSFERS_OPTIONS,
+                    mode="dropdown",
+                )
+            ),
+        }
+    )
 
 
 class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -203,11 +240,13 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if user_input.get(CONF_CONNECTION_TYPE) == CONNECTION_CUSTOM:
                 return await self.async_step_custom_types()
 
+            max_transfers = _option_to_max_transfers(user_input.get(CONF_MAX_TRANSFERS))
+
             connected = await self._test_connection(
                 user_input[CONF_START],
                 user_input[CONF_DESTINATION],
                 user_input[CONF_CONNECTION_TYPE],
-                max_transfers=user_input.get(CONF_MAX_TRANSFERS),
+                max_transfers=max_transfers,
             )
             if not connected:
                 errors["base"] = "cannot_connect"
@@ -226,7 +265,7 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                     options={
                         CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, 10),
-                        CONF_MAX_TRANSFERS: user_input.get(CONF_MAX_TRANSFERS),
+                        CONF_MAX_TRANSFERS: max_transfers,
                     },
                 )
 
@@ -240,12 +279,14 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
+            max_transfers = _option_to_max_transfers(self._data.get(CONF_MAX_TRANSFERS))
+
             connected = await self._test_connection(
                 self._data[CONF_START],
                 self._data[CONF_DESTINATION],
                 CONNECTION_CUSTOM,
                 transport_types=user_input[CONF_TRANSPORT_TYPES],
-                max_transfers=self._data.get(CONF_MAX_TRANSFERS),
+                max_transfers=max_transfers,
             )
             if not connected:
                 errors["base"] = "cannot_connect"
@@ -265,7 +306,7 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                     options={
                         CONF_UPDATE_INTERVAL: self._data.get(CONF_UPDATE_INTERVAL, 10),
-                        CONF_MAX_TRANSFERS: self._data.get(CONF_MAX_TRANSFERS),
+                        CONF_MAX_TRANSFERS: max_transfers,
                     },
                 )
 
@@ -299,12 +340,15 @@ class DBInfoOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         if user_input is not None:
-            self._options = user_input
+            self._options = dict(user_input)
+            self._options[CONF_MAX_TRANSFERS] = _option_to_max_transfers(
+                user_input.get(CONF_MAX_TRANSFERS)
+            )
 
             if user_input.get(CONF_CONNECTION_TYPE) == CONNECTION_CUSTOM:
                 return await self.async_step_custom_types()
 
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(title="", data=self._options)
 
         return self.async_show_form(
             step_id="init",

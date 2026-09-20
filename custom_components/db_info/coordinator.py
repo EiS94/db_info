@@ -35,6 +35,12 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
         """Initialize the coordinator for one config entry."""
         self.entry = entry
 
+        # Persists across polls so MOTIS/Transitous itineraries can be
+        # refreshed (cheap) instead of re-planned (expensive) - see
+        # bahn_api._fetch_from_motis. Lives as long as this coordinator
+        # (i.e. the config entry), which is exactly the lifetime we want.
+        self._motis_state = {}
+
         update_interval = entry.options.get(
             CONF_UPDATE_INTERVAL,
             entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
@@ -47,13 +53,23 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(minutes=int(update_interval)),
         )
 
-    def _get_custom_departure_time(self) -> str | None:
-        """Return the user-set custom departure time, if its switch is on."""
+    def _get_custom_departure_time(self) -> tuple[str | None, bool]:
+        """Return (custom_time, is_arrival) based on the two time switches.
+
+        - custom_time is None unless "Benutzerdefinierte Zeit verwenden" is on.
+        - is_arrival is only meaningful when custom_time is not None; it
+          reflects the "Ankunftszeit verwenden" switch.
+        """
         entity_reg = er.async_get(self.hass)
 
         switch_unique_id = f"{DOMAIN}_{self.entry.entry_id}_custom_time"
         switch_entity_id = entity_reg.async_get_entity_id(
             "switch", DOMAIN, switch_unique_id
+        )
+
+        arrival_switch_unique_id = f"{DOMAIN}_{self.entry.entry_id}_use_arrival_time"
+        arrival_switch_entity_id = entity_reg.async_get_entity_id(
+            "switch", DOMAIN, arrival_switch_unique_id
         )
 
         datetime_unique_id = f"{DOMAIN}_{self.entry.entry_id}_departure_time"
@@ -67,18 +83,29 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
                 switch_entity_id,
                 datetime_entity_id,
             )
-            return None
+            return None, False
 
         custom_time_state = self.hass.states.get(switch_entity_id)
         if not custom_time_state or custom_time_state.state != "on":
-            return None
+            return None, False
 
         datetime_state = self.hass.states.get(datetime_entity_id)
         if not datetime_state or datetime_state.state in ("unknown", "unavailable"):
-            return None
+            return None, False
 
-        _LOGGER.debug("Using custom departure time: %s", datetime_state.state)
-        return datetime_state.state
+        is_arrival = False
+        if arrival_switch_entity_id:
+            arrival_state = self.hass.states.get(arrival_switch_entity_id)
+            is_arrival = bool(arrival_state and arrival_state.state == "on")
+        else:
+            _LOGGER.debug("Arrival-time switch not found yet, defaulting to departure")
+
+        _LOGGER.debug(
+            "Using custom %s time: %s",
+            "arrival" if is_arrival else "departure",
+            datetime_state.state,
+        )
+        return datetime_state.state, is_arrival
 
     async def _async_update_data(self):
         """Fetch data from the configured trip-planning sources."""
@@ -128,7 +155,7 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
                     or None
                 )
 
-            custom_datetime = self._get_custom_departure_time()
+            custom_datetime, is_arrival = self._get_custom_departure_time()
 
             max_transfers = entry.options.get(
                 CONF_MAX_TRANSFERS,
@@ -142,6 +169,8 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
                 custom_datetime=custom_datetime,
                 transport_types=transport_types,
                 max_transfers=max_transfers,
+                is_arrival=is_arrival,
+                motis_state=self._motis_state,
             )
 
         except UpdateFailed:

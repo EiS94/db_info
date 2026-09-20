@@ -26,7 +26,6 @@ _LOGGER = logging.getLogger(__name__)
 EFA_APIS = [
     {"name": "bahnland-bayern.de", "url": "https://bahnland-bayern.de/efa/XML_TRIP_REQUEST2", "bounds": None},
     {"name": "efa.de", "url": "https://www.efa.de/hit-efa/XML_TRIP_REQUEST2", "bounds": None},
-    {"name": "efa-bw.de", "url": "http://www.efa-bw.de/nvbw/XML_TRIP_REQUEST2", "bounds": None},
     {
         "name": "vrr.de",
         "url": "https://www.vrr.de/vrr-efa/XML_TRIP_REQUEST2",
@@ -423,9 +422,284 @@ def _parse_efa_response(data):
     return journeys
 
 
+MOTIS_API_URL = "https://api.transitous.org/api/v6/plan"
+MOTIS_REFRESH_URL = "https://api.transitous.org/api/v6/refresh-itinerary"
+
+# Transitous' usage policy (https://transitous.org/api/) requires a
+# descriptive User-Agent identifying the application and a way to contact
+# its maintainer.
+# TODO: replace with a real contact address before release, e.g.
+#   "db_info Home Assistant integration (https://github.com/EiS94/db_info; contact: you@example.com)"
+MOTIS_USER_AGENT = (
+    "db_info Home Assistant integration "
+    "(https://github.com/EiS94/db_info; contact: <BITTE KONTAKT EINTRAGEN>)"
+)
+
+_TYPE_TO_MOTIS_MODE = {
+    "SBAHN": "SUBURBAN",
+    "UBAHN": "SUBWAY",
+    "TRAM": "TRAM",
+    "BUS": "BUS",
+    "SCHIFF": "FERRY",
+    "AST/RUFBUS": "ODM",
+    "ICE": "HIGHSPEED_RAIL",
+    "IC/EC": "LONG_DISTANCE",
+    "NAHVERKEHR": "REGIONAL_RAIL",
+}
+
+_MOTIS_MODES_REGIONAL = [
+    "REGIONAL_RAIL", "SUBURBAN", "SUBWAY", "TRAM", "BUS", "FERRY", "ODM",
+]
+_MOTIS_MODES_LONG_DISTANCE = ["HIGHSPEED_RAIL", "LONG_DISTANCE", "NIGHT_RAIL"]
+_MOTIS_MODES_ALL = _MOTIS_MODES_LONG_DISTANCE + _MOTIS_MODES_REGIONAL
+
+
+def _build_motis_modes(connection_type, custom_types=None):
+    """Return list of MOTIS `transitModes` for the given connection type."""
+    if connection_type == CONNECTION_CUSTOM and custom_types:
+        result = []
+        for t in custom_types:
+            value = _TYPE_TO_MOTIS_MODE.get(t)
+            if value and value not in result:
+                result.append(value)
+        if result:
+            return result
+        # No usable mapping (e.g. only "SONSTIGE" selected) -> fall back to "all"
+
+    if connection_type == CONNECTION_LONG_DISTANCE:
+        return _MOTIS_MODES_LONG_DISTANCE
+    if connection_type == CONNECTION_REGIONAL:
+        return _MOTIS_MODES_REGIONAL
+    return _MOTIS_MODES_ALL
+
+
+def _parse_motis_time(iso_str):
+    """Parse a MOTIS RFC3339 date-time string into an aware datetime."""
+    if not iso_str:
+        return None
+    try:
+        return datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_motis_itineraries(itineraries):
+    """Parse MOTIS itinerary dicts into (Journey, itinerary_id, start_time).
+
+    Used for both the `/plan` response's `itineraries` list and the single
+    `Itinerary` objects returned by `/refresh-itinerary`, so both code paths
+    share the exact same leg/stop parsing.
+    """
+    parsed = []
+
+    for itinerary in itineraries:
+        trains = []
+
+        for leg in itinerary.get("legs", []):
+            mode = leg.get("mode", "WALK")
+            origin = leg.get("from", {}) or {}
+            destination = leg.get("to", {}) or {}
+
+            if mode == "WALK":
+                dep_time = _parse_motis_time(
+                    origin.get("departure") or leg.get("startTime")
+                )
+                arr_time = _parse_motis_time(
+                    destination.get("arrival") or leg.get("endTime")
+                )
+                walk_dep = Stop(
+                    origin.get("name", ""), None, None, dep_time, None, None, []
+                )
+                walk_arr = Stop(
+                    destination.get("name", ""), arr_time, None, None, None, None, []
+                )
+                trains.append(Train("Fußweg", None, [walk_dep, walk_arr], []))
+                continue
+
+            train_name = (
+                leg.get("displayName")
+                or " ".join(
+                    part
+                    for part in [leg.get("routeShortName"), leg.get("tripShortName")]
+                    if part
+                )
+                or leg.get("routeLongName")
+                or mode.replace("_", " ").title()
+            )
+            direction = leg.get("headsign")
+
+            notes = []
+            if leg.get("cancelled"):
+                notes.append("Verbindung fällt aus")
+            for alert in leg.get("alerts") or []:
+                text = alert.get("headerText") or alert.get("descriptionText")
+                if text:
+                    notes.append(text)
+
+            stop_sequence = (
+                [origin] + list(leg.get("intermediateStops") or []) + [destination]
+            )
+
+            # MOTIS always fills "arrival"/"departure" with a value (falling
+            # back to the scheduled time when no live data exists) -
+            # `realTime` is the only field that says whether that value is
+            # an actual live update. Without gating on it here, every
+            # journey would look like it has confirmed realtime data (e.g.
+            # in the "db-info-card"), even for trips many hours out.
+            is_realtime = bool(leg.get("realTime"))
+
+            stops = []
+            for raw_stop in stop_sequence:
+                arr_planned = _parse_motis_time(raw_stop.get("scheduledArrival"))
+                arr_real = (
+                    _parse_motis_time(raw_stop.get("arrival")) if is_realtime else None
+                )
+                dep_planned = _parse_motis_time(raw_stop.get("scheduledDeparture"))
+                dep_real = (
+                    _parse_motis_time(raw_stop.get("departure")) if is_realtime else None
+                )
+                platform = raw_stop.get("track") or raw_stop.get("scheduledTrack")
+
+                stops.append(
+                    Stop(
+                        raw_stop.get("name", ""),
+                        arr_planned,
+                        arr_real,
+                        dep_planned,
+                        dep_real,
+                        platform,
+                        [],
+                    )
+                )
+
+            if stops:
+                trains.append(Train(train_name, direction, stops, notes))
+
+        # Strip leading/trailing walk legs, matching the EFA/db.de parsers
+        if len(trains) > 1:
+            if trains[0].name == "Fußweg":
+                trains.pop(0)
+            if trains and trains[-1].name == "Fußweg":
+                trains.pop(-1)
+
+        if trains:
+            journey = Journey(trains)
+            itinerary_id = itinerary.get("id")
+            start_time = _parse_motis_time(itinerary.get("startTime"))
+            parsed.append((journey, itinerary_id, start_time))
+
+    return parsed
+
+
+async def _motis_get(session, url, params):
+    """Low-level GET helper shared by /plan and /refresh-itinerary calls."""
+    try:
+        async with session.get(
+            url,
+            params=params,
+            headers={"User-Agent": MOTIS_USER_AGENT, "Accept": "application/json"},
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as response:
+            if response.status != 200:
+                _LOGGER.warning(
+                    "MOTIS API request to %s returned status %d", url, response.status
+                )
+                return None
+            return await response.json()
+    except asyncio.TimeoutError:
+        _LOGGER.warning("MOTIS API request to %s timed out", url)
+        return None
+    except aiohttp.ClientError as err:
+        _LOGGER.warning("MOTIS API request to %s not reachable: %s", url, err)
+        return None
+    except Exception:
+        _LOGGER.exception("Unexpected error handling MOTIS API response from %s", url)
+        return None
+
+
+def _update_motis_state(motis_state, cache_key, parsed):
+    """Remember which itineraries we now know about for future refreshes."""
+    ids = [p[1] for p in parsed if p[1]]
+    start_times = [p[2] for p in parsed if p[2] is not None]
+    motis_state["cache_key"] = cache_key
+    motis_state["itinerary_ids"] = ids
+    motis_state["next_departure"] = min(start_times) if start_times else None
+
+
+async def _fetch_from_motis(session, params, cache_key, motis_state):
+    """Query the Transitous/MOTIS journey planner.
+
+    Per Transitous' request (see https://transitous.org/api/ / their Matrix
+    channel), this avoids recomputing routes via `/plan` on every single
+    coordinator update. Instead it reuses previously obtained itineraries
+    via `/refresh-itinerary`, which only asks the server for updated
+    realtime data for already-known itineraries - much cheaper than a full
+    route search. A full `/plan` request is only made when:
+      - there is no usable cached itinerary yet,
+      - the query itself changed (different coordinates, filters, ...), or
+      - even the soonest cached itinerary has already departed (a refresh
+        can update an existing itinerary's data, but can't discover a new,
+        later one to replace it).
+
+    `motis_state` is a plain dict owned by the caller (the coordinator) that
+    is mutated in place so it persists across calls/polls.
+    """
+    name = "transitous.org"
+    now = datetime.now().astimezone()
+
+    cached_ids = motis_state.get("itinerary_ids")
+    next_departure = motis_state.get("next_departure")
+
+    can_refresh = (
+        cached_ids
+        and motis_state.get("cache_key") == cache_key
+        and next_departure is not None
+        and next_departure > now
+    )
+
+    if can_refresh:
+        refresh_params = {"transitModes": params.get("transitModes")}
+        tasks = [
+            _motis_get(
+                session, MOTIS_REFRESH_URL, {**refresh_params, "itineraryId": iid}
+            )
+            for iid in cached_ids
+        ]
+        responses = await asyncio.gather(*tasks)
+        itineraries = [r for r in responses if r]
+
+        if itineraries:
+            parsed = _parse_motis_itineraries(itineraries)
+            if parsed:
+                _update_motis_state(motis_state, cache_key, parsed)
+                _LOGGER.debug(
+                    "MOTIS API '%s': refreshed %d/%d cached itineraries",
+                    name, len(itineraries), len(cached_ids),
+                )
+                return {"name": name, "journeys": [p[0] for p in parsed]}
+
+        _LOGGER.debug(
+            "MOTIS API '%s': refresh-itinerary yielded nothing usable, "
+            "falling back to /plan", name,
+        )
+
+    # Full /plan request: first run, stale cache, or the query changed.
+    data = await _motis_get(session, MOTIS_API_URL, params)
+    if data is None:
+        return None
+
+    parsed = _parse_motis_itineraries(data.get("itineraries", []))
+    if not parsed:
+        _LOGGER.debug("MOTIS API '%s' returned no journeys", name)
+        motis_state.pop("itinerary_ids", None)
+        return None
+
+    _update_motis_state(motis_state, cache_key, parsed)
+    return {"name": name, "journeys": [p[0] for p in parsed]}
+
+
 async def _fetch_from_api(session, api, params):
     """Query a single EFA API and parse its response into Journey objects.
-
     Returns a dict {"name", "url", "journeys"} on success, or None if the
     API was unreachable, returned invalid data, or yielded no journeys.
     """
@@ -571,7 +845,17 @@ async def get_trip_info(
         custom_datetime=None,
         transport_types=None,
         max_transfers=None,
+        is_arrival=False,
+        motis_state=None,
 ):
+    if max_transfers is not None:
+        # Normalize to int: config entries created/edited before the
+        # max-transfers dropdown existed may still have a leftover float
+        # value (e.g. 5.0) stored from the old free-form NumberSelector,
+        # which would otherwise get sent to the APIs as "5.0"/"2.0" and
+        # potentially rejected or misinterpreted.
+        max_transfers = int(max_transfers)
+
     applicable_efa_apis = [
         api for api in EFA_APIS
         if _in_bounds(start_coordinates, api["bounds"])
@@ -584,9 +868,9 @@ async def get_trip_info(
             ", ".join(skipped_apis),
         )
 
-    total_sources = len(applicable_efa_apis) + 1  # + bahn.de
+    total_sources = len(applicable_efa_apis) + 2  # + bahn.de + transitous.org (MOTIS)
     _LOGGER.debug(
-        "Fetching trip info from %d APIs in parallel (%d EFA + bahn.de)",
+        "Fetching trip info from %d APIs in parallel (%d EFA + bahn.de + transitous.org)",
         total_sources, len(applicable_efa_apis),
     )
 
@@ -632,7 +916,7 @@ async def get_trip_info(
         "name_destination": coord_dest,
         "itdDateDayMonthYear": time.strftime("%d.%m.%Y"),
         "itdTime": time.astimezone().strftime("%H:%M"),
-        "itdTripDateTimeDepArr": "dep",
+        "itdTripDateTimeDepArr": "arr" if is_arrival else "dep",
         "coordOutputFormat": "WGS84[dd.ddddd]",
         "useRealtime": "1",
         "calcOneDirection": "1",
@@ -653,7 +937,7 @@ async def get_trip_info(
         "abfahrtsHalt": convert_coordinates_to_db_format(start_coordinates),
         "anfrageZeitpunkt": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "ankunftsHalt": convert_coordinates_to_db_format(destination_coordinates),
-        "ankunftSuche": "ABFAHRT",
+        "ankunftSuche": "ANKUNFT" if is_arrival else "ABFAHRT",
         "klasse": "KLASSE_2",
         "produktgattungen": _build_produktgattungen(connection_type, transport_types),
         "reisende": [
@@ -675,16 +959,46 @@ async def get_trip_info(
         # bahn.de/vendo API: 0 = Direktverbindungen only, 1, 2, ... = max. Anzahl Umstiege.
         db_data["maxUmstiege"] = max_transfers
 
+    motis_params = {
+        "fromPlace": f"{lat_s},{lon_s}",
+        "toPlace": f"{lat_d},{lon_d}",
+        "time": time.isoformat(),
+        "arriveBy": "true" if is_arrival else "false",
+        "numItineraries": "5",
+        "transitModes": ",".join(_build_motis_modes(connection_type, transport_types)),
+    }
+    if max_transfers is not None:
+        # MOTIS: 0 = Direktverbindungen only, 1, 2, ... = max. Anzahl Umstiege.
+        motis_params["maxTransfers"] = str(max_transfers)
+
+    # Identifies "the same query" across polls so that a cached MOTIS
+    # itinerary set can be reused/refreshed instead of re-planning; the
+    # current time is deliberately excluded (see _fetch_from_motis).
+    motis_cache_key = (
+        round(lat_s, 5), round(lon_s, 5),
+        round(lat_d, 5), round(lon_d, 5),
+        connection_type,
+        tuple(sorted(transport_types)) if transport_types else None,
+        max_transfers,
+        is_arrival,
+        custom_datetime if isinstance(custom_datetime, str) else None,
+    )
+    if motis_state is None:
+        motis_state = {}
+
     async with aiohttp.ClientSession() as session:
         tasks = [_fetch_from_api(session, api, params) for api in applicable_efa_apis]
         tasks.append(_fetch_from_db_api(session, db_data))
+        tasks.append(
+            _fetch_from_motis(session, motis_params, motis_cache_key, motis_state)
+        )
         results = await asyncio.gather(*tasks)
 
     valid_results = [result for result in results if result]
 
     if not valid_results:
         _LOGGER.error(
-            "None of the %d APIs (EFA + bahn.de) returned usable data",
+            "None of the %d APIs (EFA + bahn.de + transitous.org) returned usable data",
             total_sources,
         )
         return {"journeys": {}}

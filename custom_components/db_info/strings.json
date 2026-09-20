@@ -8,7 +8,7 @@
           "Ziel": "Ziel",
           "Verkehrsmittel": "Verkehrsmittel",
           "Update Intervall": "Update-Intervall (Minuten)",
-          "Max_Umstiege": "Max. Anzahl Umstiege (leer = unbegrenzt)"
+          "Max_Umstiege": "Max. Anzahl Umstiege"
         }
       },
       "custom_types": {
@@ -32,7 +32,7 @@
         "data": {
           "Verkehrsmittel": "Verkehrsmittel",
           "Update Intervall": "Update-Intervall (Minuten)",
-          "Max_Umstiege": "Max. Anzahl Umstiege (leer = unbegrenzt)"
+          "Max_Umstiege": "Max. Anzahl Umstiege"
         }
       },
       "custom_types": {
