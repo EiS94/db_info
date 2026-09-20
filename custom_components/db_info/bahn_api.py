@@ -432,7 +432,7 @@ MOTIS_REFRESH_URL = "https://api.transitous.org/api/v6/refresh-itinerary"
 #   "db_info Home Assistant integration (https://github.com/EiS94/db_info; contact: you@example.com)"
 MOTIS_USER_AGENT = (
     "db_info Home Assistant integration "
-    "(https://github.com/EiS94/db_info; contact: <BITTE KONTAKT EINTRAGEN>)"
+    "(https://github.com/EiS94/db_info; contact: db-info.divinity480@simplelogin.com)"
 )
 
 _TYPE_TO_MOTIS_MODE = {
