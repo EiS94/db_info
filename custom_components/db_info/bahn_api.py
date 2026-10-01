@@ -5,6 +5,8 @@ import random
 import uuid
 
 import aiohttp
+from curl_cffi.requests import AsyncSession
+import curl_cffi
 
 from .Journey import Journey, parse_trip
 from .Train import Train
@@ -19,12 +21,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Several EFA (Elektronische Fahrplanauskunft) instances expose the same
-# XML_TRIP_REQUEST2 endpoint and can all answer DB-network trip requests.
-# Since any single instance can be temporarily unavailable or slow, all of
-# them are queried in parallel and the best usable response is used.
 EFA_APIS = [
-    {"name": "bahnland-bayern.de", "url": "https://bahnland-bayern.de/efa/XML_TRIP_REQUEST2", "bounds": None},
     {"name": "efa.de", "url": "https://www.efa.de/hit-efa/XML_TRIP_REQUEST2", "bounds": None},
     {
         "name": "vrr.de",
@@ -66,11 +63,78 @@ _DB_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
 # worst case would.
 _DB_WARMUP_TIMEOUT = aiohttp.ClientTimeout(total=5)
 
+DBNAV_API_URL = "https://app.services-bahn.de/mob/angebote/fahrplan"
+_DBNAV_CONTENT_TYPE = "application/x.db.vendo.mob.verbindungssuche.v9+json"
+_DBNAV_REQUEST_TIMEOUT = 10  # seconds
+
+_DBNAV_IMPERSONATE = "chrome124"
+
+
+def _dbnav_headers(correlation_id):
+    return {
+        "User-Agent": "DBNavigator/Android/25.18.2",
+        "X-App-Version": "25.18.2",
+        "X-Device-Os-Name": "Android",
+        "X-Device-Os-Version": "32",
+        "X-Device-Model": "Google Pixel 3a",
+        "Accept-Language": "en,de",
+        "Connection": "Keep-Alive",
+        "Accept-Encoding": "gzip",
+        "X-INSTANA-ANDROID": str(uuid.uuid4()),
+        "X-Correlation-ID": f"{uuid.uuid4()}_{uuid.uuid4()}",
+        "Accept": _DBNAV_CONTENT_TYPE,
+        "Content-Type": _DBNAV_CONTENT_TYPE,
+    }
+
+
+def _format_dbnav_location_lid(coordinates, label="Standort"):
+    lat, lon = coordinates[0], coordinates[1]
+    x = round(float(lon) * 1_000_000)
+    y = round(float(lat) * 1_000_000)
+    return f"A=2@O={label}@X={x}@Y={y}@"
+
+
+_TYPE_TO_DBNAV_VERKEHRSMITTEL = {
+    "SBAHN": "SBAHNEN",
+    "UBAHN": "UBAHN",
+    "TRAM": "STRASSENBAHN",
+    "BUS": "BUSSE",
+    "SCHIFF": "SCHIFFE",
+    "AST/RUFBUS": "ANRUFPFLICHTIGEVERKEHRE",
+    "ICE": "HOCHGESCHWINDIGKEITSZUEGE",
+    "IC/EC": "INTERCITYUNDEUROCITYZUEGE",
+    "NAHVERKEHR": "NAHVERKEHRSONSTIGEZUEGE",
+}
+
+_DBNAV_VERKEHRSMITTEL_LONG_DISTANCE = [
+    "HOCHGESCHWINDIGKEITSZUEGE", "INTERCITYUNDEUROCITYZUEGE", "INTERREGIOUNDSCHNELLZUEGE",
+]
+_DBNAV_VERKEHRSMITTEL_REGIONAL = [
+    "NAHVERKEHRSONSTIGEZUEGE", "SBAHNEN", "BUSSE", "SCHIFFE", "UBAHN",
+    "STRASSENBAHN", "ANRUFPFLICHTIGEVERKEHRE",
+]
+_DBNAV_VERKEHRSMITTEL_ALL = _DBNAV_VERKEHRSMITTEL_LONG_DISTANCE + _DBNAV_VERKEHRSMITTEL_REGIONAL
+
+
+def _build_dbnav_verkehrsmittel(connection_type, custom_types=None):
+    if connection_type == CONNECTION_CUSTOM and custom_types:
+        result = []
+        for t in custom_types:
+            value = _TYPE_TO_DBNAV_VERKEHRSMITTEL.get(t)
+            if value and value not in result:
+                result.append(value)
+        if result:
+            return result
+        # No usable mapping -> fall back to "all"
+
+    if connection_type == CONNECTION_LONG_DISTANCE:
+        return _DBNAV_VERKEHRSMITTEL_LONG_DISTANCE
+    if connection_type == CONNECTION_REGIONAL:
+        return _DBNAV_VERKEHRSMITTEL_REGIONAL
+    return _DBNAV_VERKEHRSMITTEL_ALL
+
 
 def _chrome_profile():
-    """A Chrome/Windows profile with headers that are consistent with each
-    other (matching sec-ch-ua major version, etc.) - a bare User-Agent
-    without matching Client-Hints headers is itself a bot signal."""
     major = random.randint(126, 128)
     patch = random.randint(6478, 6668)
     build = random.randint(29, 234)
@@ -94,9 +158,6 @@ def _chrome_profile():
 
 
 def _firefox_profile():
-    """A Firefox/Windows profile. Firefox does not send sec-ch-ua
-    Client-Hints headers at all, so sending them alongside a Firefox
-    User-Agent would itself be an inconsistency a bot filter can catch."""
     major = random.randint(128, 130)
     esr = "esr" if random.random() < 0.3 else ""
     return {
@@ -114,9 +175,6 @@ def _random_browser_profile():
 
 
 def _db_navigation_headers(profile):
-    """Headers for the 'warm-up' GET to the search page - looks like a
-    real top-level page load, so the session picks up bahn.de's session
-    cookie(s) before the API is called, same as a real browser would."""
     return {
         "User-Agent": profile["user_agent"],
         "Accept": (
@@ -134,8 +192,6 @@ def _db_navigation_headers(profile):
 
 
 def _db_api_headers(profile, correlation_id):
-    """Headers for the actual XHR/fetch-style call to the trip API,
-    as if made from JS running on the bahn.de search page."""
     return {
         "User-Agent": profile["user_agent"],
         "Accept": "application/json",
@@ -425,14 +481,9 @@ def _parse_efa_response(data):
 MOTIS_API_URL = "https://api.transitous.org/api/v6/plan"
 MOTIS_REFRESH_URL = "https://api.transitous.org/api/v6/refresh-itinerary"
 
-# Transitous' usage policy (https://transitous.org/api/) requires a
-# descriptive User-Agent identifying the application and a way to contact
-# its maintainer.
-# TODO: replace with a real contact address before release, e.g.
-#   "db_info Home Assistant integration (https://github.com/EiS94/db_info; contact: you@example.com)"
 MOTIS_USER_AGENT = (
     "db_info Home Assistant integration "
-    "(https://github.com/EiS94/db_info; contact: <BITTE KONTAKT EINTRAGEN>)"
+    "(https://github.com/EiS94/db_info; contact: db-info.divinity480@simplelogin.com)"
 )
 
 _TYPE_TO_MOTIS_MODE = {
@@ -618,7 +669,6 @@ async def _motis_get(session, url, params):
 
 
 def _update_motis_state(motis_state, cache_key, parsed):
-    """Remember which itineraries we now know about for future refreshes."""
     ids = [p[1] for p in parsed if p[1]]
     start_times = [p[2] for p in parsed if p[2] is not None]
     motis_state["cache_key"] = cache_key
@@ -627,23 +677,6 @@ def _update_motis_state(motis_state, cache_key, parsed):
 
 
 async def _fetch_from_motis(session, params, cache_key, motis_state):
-    """Query the Transitous/MOTIS journey planner.
-
-    Per Transitous' request (see https://transitous.org/api/ / their Matrix
-    channel), this avoids recomputing routes via `/plan` on every single
-    coordinator update. Instead it reuses previously obtained itineraries
-    via `/refresh-itinerary`, which only asks the server for updated
-    realtime data for already-known itineraries - much cheaper than a full
-    route search. A full `/plan` request is only made when:
-      - there is no usable cached itinerary yet,
-      - the query itself changed (different coordinates, filters, ...), or
-      - even the soonest cached itinerary has already departed (a refresh
-        can update an existing itinerary's data, but can't discover a new,
-        later one to replace it).
-
-    `motis_state` is a plain dict owned by the caller (the coordinator) that
-    is mutated in place so it persists across calls/polls.
-    """
     name = "transitous.org"
     now = datetime.now().astimezone()
 
@@ -768,19 +801,6 @@ def _score_result(result):
 
 
 async def _fetch_from_db_api(session, data):
-    """Query the official bahn.de trip planner API.
-
-    Uses a full, internally-consistent browser profile (User-Agent +
-    matching Client-Hints/Accept-Language) and a fresh correlation id per
-    request, since this is an internal API not meant for external clients.
-    Also performs a best-effort "warm-up" GET to the search page first, so
-    the session picks up bahn.de's session cookie(s) the same way a real
-    browser would before calling the API - if that fails, the actual
-    request is attempted anyway. Returns a dict {"name", "url", "journeys"}
-    on success, or None if the API was unreachable, returned invalid data,
-    or yielded no journeys - matching the contract of _fetch_from_api so
-    both can be scored together.
-    """
     name = "bahn.de"
     url = DB_API_URL
     correlation_id = f"{uuid.uuid4()}_{uuid.uuid4()}"
@@ -838,6 +858,137 @@ async def _fetch_from_db_api(session, data):
     return {"name": name, "url": url, "journeys": journeys}
 
 
+async def _fetch_from_dbnav_api(
+        start_coordinates,
+        destination_coordinates,
+        time,
+        connection_type="all",
+        transport_types=None,
+        max_transfers=None,
+        is_arrival=False,
+):
+    name = "app.services-bahn.de"
+    url = DBNAV_API_URL
+    correlation_id = f"{uuid.uuid4()}_{uuid.uuid4()}"
+
+    body = {
+        "autonomeReservierung": False,
+        "einstiegsTypList": ["STANDARD"],
+        "fahrverguenstigungen": {
+            "deutschlandTicketVorhanden": False,
+            "nurDeutschlandTicketVerbindungen": False,
+        },
+        "klasse": "KLASSE_2",
+        "reisendenProfil": {
+            "reisende": [
+                {
+                    "ermaessigungen": ["KEINE_ERMAESSIGUNG KLASSENLOS"],
+                    "reisendenTyp": "ERWACHSENER",
+                }
+            ],
+        },
+        "reservierungsKontingenteVorhanden": False,
+        "reiseHin": {
+            "wunsch": {
+                "abgangsLocationId": _format_dbnav_location_lid(start_coordinates, "Start"),
+                "zielLocationId": _format_dbnav_location_lid(destination_coordinates, "Ziel"),
+                "verkehrsmittel": _build_dbnav_verkehrsmittel(connection_type, transport_types),
+                "alternativeHalteBerechnung": True,
+                "zeitWunsch": {
+                    "reiseDatum": time.isoformat(timespec="seconds"),
+                    "zeitPunktArt": "ANKUNFT" if is_arrival else "ABFAHRT",
+                },
+            },
+        },
+    }
+    if max_transfers is not None:
+        body["reiseHin"]["wunsch"]["maxUmstiege"] = max_transfers
+
+    headers = _dbnav_headers(correlation_id)
+
+    try:
+        async with AsyncSession() as session:
+            response = await session.post(
+                url,
+                headers=headers,
+                json=body,
+                timeout=_DBNAV_REQUEST_TIMEOUT,
+                impersonate=_DBNAV_IMPERSONATE,
+            )
+            if response.status_code != 200:
+                # DB's own error responses (like the "452 OPS_BLOCKED" seen
+                # in testing - not a standard HTTP status) carry a body
+                # that explains what was wrong. Log it instead of
+                # discarding it via raise_for_status().
+                _LOGGER.warning(
+                    "DB API '%s' (%s) returned status %s: %s",
+                    name, url, response.status_code, response.text[:1000],
+                )
+                return None
+            json_data = response.json()
+    except curl_cffi.CurlError as err:
+        _LOGGER.warning(
+            "DB API '%s' (%s) not reachable: %s: %s",
+            name, url, type(err).__name__, err or "no further details",
+        )
+        return None
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.warning(
+            "DB API '%s' (%s) returned invalid data: %s: %s",
+            name, url, type(err).__name__, err or "no further details",
+        )
+        return None
+
+    # The mobile API may wrap each connection in a "verbindung" object
+    # (db-vendo-client does `jj.verbindung || jj`), so unwrap it if present.
+    # Parsing is done per journey so that one unexpectedly-shaped entry
+    # doesn't discard the others.
+    journeys = []
+    for raw_journey in json_data.get("verbindungen", []):
+        try:
+            journeys.append(parse_trip(raw_journey.get("verbindung", raw_journey)))
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.debug(
+                "Skipping unparsable journey from '%s': %s: %s",
+                name, type(err).__name__, err,
+            )
+
+    if not journeys:
+        _LOGGER.debug("DB API '%s' returned no usable journeys", name)
+        return None
+
+    return {"name": name, "url": url, "journeys": journeys}
+
+
+def _finalize_result(result, max_transfers, time):
+    """Turn one source's raw result into the sensor JSON, applying the
+    max_transfers filter and logging the outcome. Shared by the primary
+    (DB Navigator) fast path and the multi-source fallback path so both
+    produce identical output shapes."""
+    journeys = result["journeys"]
+
+    if max_transfers is not None:
+        journeys = [
+            journey for journey in journeys
+            if journey.get_number_of_train_changes() <= max_transfers
+        ]
+
+    json_output = {"journeys": {}}
+    for i, journey in enumerate(journeys):
+        journey_json = journey.to_json()
+        journey_json["Source"] = result["name"]
+        json_output["journeys"][i] = journey_json
+
+    _LOGGER.info(
+        "Successfully fetched %d journeys (source: %s), timestamp: %f",
+        len(journeys),
+        result["name"],
+        time.timestamp(),
+    )
+
+    return json_output
+
+
 async def get_trip_info(
         start_coordinates,
         destination_coordinates,
@@ -855,24 +1006,6 @@ async def get_trip_info(
         # which would otherwise get sent to the APIs as "5.0"/"2.0" and
         # potentially rejected or misinterpreted.
         max_transfers = int(max_transfers)
-
-    applicable_efa_apis = [
-        api for api in EFA_APIS
-        if _in_bounds(start_coordinates, api["bounds"])
-        and _in_bounds(destination_coordinates, api["bounds"])
-    ]
-    skipped_apis = [api["name"] for api in EFA_APIS if api not in applicable_efa_apis]
-    if skipped_apis:
-        _LOGGER.debug(
-            "Skipping %s: trip is outside their coverage area",
-            ", ".join(skipped_apis),
-        )
-
-    total_sources = len(applicable_efa_apis) + 2  # + bahn.de + transitous.org (MOTIS)
-    _LOGGER.debug(
-        "Fetching trip info from %d APIs in parallel (%d EFA + bahn.de + transitous.org)",
-        total_sources, len(applicable_efa_apis),
-    )
 
     # Resolve departure time
     if custom_datetime:
@@ -897,6 +1030,46 @@ async def get_trip_info(
             time = datetime.now().astimezone()
     else:
         time = datetime.now().astimezone()
+
+    dbnav_result = await _fetch_from_dbnav_api(
+        start_coordinates,
+        destination_coordinates,
+        time,
+        connection_type,
+        transport_types,
+        max_transfers,
+        is_arrival,
+    )
+    if dbnav_result:
+        _LOGGER.info(
+            "Using primary source '%s' (DB Navigator), skipping EFA/bahn.de/transitous.org",
+            dbnav_result["name"],
+        )
+        return _finalize_result(dbnav_result, max_transfers, time)
+
+    _LOGGER.debug(
+        "Primary source 'app.services-bahn.de' returned nothing usable, "
+        "falling back to EFA + bahn.de + transitous.org"
+    )
+
+    # --- Fallback: EFA + bahn.de + transitous.org, in parallel ------------
+    applicable_efa_apis = [
+        api for api in EFA_APIS
+        if _in_bounds(start_coordinates, api["bounds"])
+        and _in_bounds(destination_coordinates, api["bounds"])
+    ]
+    skipped_apis = [api["name"] for api in EFA_APIS if api not in applicable_efa_apis]
+    if skipped_apis:
+        _LOGGER.debug(
+            "Skipping %s: trip is outside their coverage area",
+            ", ".join(skipped_apis),
+        )
+
+    total_sources = len(applicable_efa_apis) + 2  # + bahn.de + transitous.org (MOTIS)
+    _LOGGER.debug(
+        "Fetching trip info from %d fallback APIs in parallel (%d EFA + bahn.de + transitous.org)",
+        total_sources, len(applicable_efa_apis),
+    )
 
     lat_s, lon_s = start_coordinates[0], start_coordinates[1]
     lat_d, lon_d = destination_coordinates[0], destination_coordinates[1]
@@ -998,7 +1171,9 @@ async def get_trip_info(
 
     if not valid_results:
         _LOGGER.error(
-            "None of the %d APIs (EFA + bahn.de + transitous.org) returned usable data",
+            "None of the %d fallback APIs (EFA + bahn.de + transitous.org) "
+            "returned usable data, and the primary DB Navigator source was "
+            "also empty",
             total_sources,
         )
         return {"journeys": {}}
@@ -1009,8 +1184,8 @@ async def get_trip_info(
     next_connection_duration = best_score[1]
 
     _LOGGER.info(
-        "Using result from '%s' (%d/%d sources usable, next connection: "
-        "realtime=%s, duration=%s)",
+        "Using fallback result from '%s' (%d/%d fallback sources usable, "
+        "next connection: realtime=%s, duration=%s)",
         best["name"],
         len(valid_results),
         total_sources,
@@ -1018,25 +1193,4 @@ async def get_trip_info(
         next_connection_duration,
     )
 
-    journeys = best["journeys"]
-
-    if max_transfers is not None:
-        journeys = [
-            journey for journey in journeys
-            if journey.get_number_of_train_changes() <= max_transfers
-        ]
-
-    json_output = {"journeys": {}}
-    for i, journey in enumerate(journeys):
-        journey_json = journey.to_json()
-        journey_json["Source"] = best["name"]
-        json_output["journeys"][i] = journey_json
-
-    _LOGGER.info(
-        "Successfully fetched %d journeys (source: %s), timestamp: %f",
-        len(journeys),
-        best["name"],
-        time.timestamp(),
-    )
-
-    return json_output
+    return _finalize_result(best, max_transfers, time)

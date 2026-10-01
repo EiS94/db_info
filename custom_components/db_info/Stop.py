@@ -57,33 +57,55 @@ class Stop:
 
 
 def parse_time(time_str):
-    return datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S")
+    # The mobile API includes a UTC offset ("...+02:00"); the bahn.de-web
+    # API this was originally written against did not. datetime.fromisoformat
+    # handles both, so it replaces the previous fixed strptime format that
+    # broke on the offset with "ValueError: unconverted data remains".
+    return datetime.fromisoformat(time_str)
+
+
+def _get_stop_name(json_data):
+    # In the schema this codebase was originally written against, the stop
+    # name sits directly on the stopover object. In the mobile-API schema,
+    # it's nested under an "ort" (or "station"/"stop") sub-object instead -
+    # see db-vendo-client's parse/stopover.js (`st.ort || st.station || st`)
+    # and parse/location.js (`l.name`). Try both rather than assuming one.
+    if json_data.get("name"):
+        return json_data["name"]
+    for key in ("ort", "station", "stop", "halt"):
+        nested = json_data.get(key)
+        if isinstance(nested, dict) and nested.get("name"):
+            return nested["name"]
+    return "Unbekannt"
+
+
+def _get_time(json_data, *keys):
+    """Return the first present, non-null value among `keys`, parsed as a
+    time. Different schema versions use different field names for the same
+    thing (e.g. "abfahrtsZeitpunkt" vs "abgangsDatum" for a planned
+    departure) - see db-vendo-client's parse/stopover.js for the exact
+    fallback chain this mirrors."""
+    for key in keys:
+        value = json_data.get(key)
+        if value:
+            return parse_time(value)
+    return None
 
 
 def parse_stop(json_data):
-    name = json_data["name"]
+    name = _get_stop_name(json_data)
     if "gleis" in json_data:
         platform = json_data["gleis"]
+    elif "ezGleis" in json_data:
+        platform = json_data["ezGleis"]
     else:
         platform = None
-    if "abfahrtsZeitpunkt" in json_data:
-        departure_time = parse_time(json_data["abfahrtsZeitpunkt"])
-    else:
-        departure_time = None
-    if "ezAbfahrtsZeitpunkt" in json_data:
-        departure_time_real = parse_time(json_data["ezAbfahrtsZeitpunkt"])
-    else:
-        departure_time_real = None
-    if "ankunftsZeitpunkt" in json_data:
-        arrival_time = parse_time(json_data["ankunftsZeitpunkt"])
-    else:
-        arrival_time = None
-    if "ezAnkunftsZeitpunkt" in json_data:
-        arrival_time_real = parse_time(json_data["ezAnkunftsZeitpunkt"])
-    else:
-        arrival_time_real = None
+    departure_time = _get_time(json_data, "abfahrtsZeitpunkt", "abgangsDatum")
+    departure_time_real = _get_time(json_data, "ezAbfahrtsZeitpunkt", "ezAbgangsDatum")
+    arrival_time = _get_time(json_data, "ankunftsZeitpunkt", "ankunftsDatum")
+    arrival_time_real = _get_time(json_data, "ezAnkunftsZeitpunkt", "ezAnkunftsDatum")
     notes = []
-    for note in json_data["priorisierteMeldungen"]:
+    for note in json_data.get("priorisierteMeldungen", []):
         notes.append(note["text"])
     return Stop(
         name,

@@ -185,7 +185,7 @@ def parse_trip(json_data):
     _LOGGER.debug("Parsing journey from JSON data: %s", json_short)
 
     trains = []
-    for train in json_data["verbindungsAbschnitte"]:
+    for train in json_data.get("verbindungsAbschnitte", []):
         trains.append(parse_train(train))
     if len(trains) > 1:
         if trains[0].name == "Fußweg":

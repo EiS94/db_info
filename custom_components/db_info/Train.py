@@ -109,18 +109,33 @@ class Train:
 
 
 def parse_train(json_data):
-    if "langText" in json_data["verkehrsmittel"]:
-        name = json_data["verkehrsmittel"]["langText"]
-    else:
-        name = json_data["verkehrsmittel"]["name"]
-    if "richtung" in json_data["verkehrsmittel"]:
-        destination = json_data["verkehrsmittel"]["richtung"]
-    else:
+    verkehrsmittel = json_data.get("verkehrsmittel") or {}
+
+    name = (
+        verkehrsmittel.get("name")
+        or verkehrsmittel.get("langText")
+        or verkehrsmittel.get("kurzText")
+        or verkehrsmittel.get("mittelText")
+        or json_data.get("langtext")
+        or json_data.get("mitteltext")
+        or json_data.get("kurztext")
+    )
+
+    if not name:
+        # No product name found anywhere - this genuinely is a walking/
+        # transfer leg (typ "FUSSWEG"/"TRANSFER"), which legitimately
+        # carries none of the above. The rest of this codebase already
+        # expects such legs to surface as a Train named "Fußweg" (see
+        # Journey.parse_trip and Train.get_departure/get_destination).
+        name = "Fußweg"
         destination = None
+    else:
+        destination = verkehrsmittel.get("richtung") or json_data.get("richtung")
+
     notes = []
-    for note in json_data["priorisierteMeldungen"]:
+    for note in json_data.get("priorisierteMeldungen", []):
         notes.append(note["text"])
     stops = []
-    for stop in json_data["halte"]:
+    for stop in json_data.get("halte", []):
         stops.append(parse_stop(stop))
     return Train(name, destination, stops, notes)
