@@ -12,5 +12,5 @@
   "requirements": [
     "curl_cffi>=0.7.0"
   ],
-  "version": "4.3.1"
+  "version": "5.0.0"
 }
