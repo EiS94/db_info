@@ -7,3 +7,11 @@
 pytest-homeassistant-custom-component
 pytest
 pytest-asyncio
+
+# Needed because custom_components/db_info/bahn_api.py imports curl_cffi at
+# module load time (see manifest.json "requirements"). Home Assistant
+# itself installs manifest.json requirements automatically at runtime, but
+# this plain `pip install -r requirements_test.txt` step does not - without
+# this line, importing the integration during test collection fails with
+# ModuleNotFoundError.
+curl_cffi>=0.7.0

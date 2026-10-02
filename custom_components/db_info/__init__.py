@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import homeassistant.helpers.config_validation as cv
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
@@ -11,6 +12,13 @@ from .coordinator import DBInfoUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[str] = ["sensor", "button", "datetime", "switch"]
+
+# This integration is only ever set up via a config entry (config_flow in
+# manifest.json); it has no YAML configuration options. async_setup below
+# exists only to register the "refresh_all" service, not to accept
+# configuration - hassfest requires this to be declared explicitly rather
+# than left implicit.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
