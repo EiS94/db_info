@@ -478,6 +478,7 @@ def _parse_motis_itineraries(itineraries):
                         dep_real,
                         platform,
                         [],
+                        bool(raw_stop.get("cancelled")),
                     )
                 )
 

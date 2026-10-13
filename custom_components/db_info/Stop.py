@@ -2,7 +2,13 @@ from datetime import datetime
 
 from homeassistant.util import dt as dt_util
 
-from .TrainProblem import TrainProblem
+from .TrainProblem import (
+    TrainProblem,
+    collect_notes,
+    has_cancelled_flag,
+    is_stop_cancelled_note,
+    note_texts,
+)
 from .const import API_TIME_ZONE
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
@@ -18,6 +24,7 @@ class Stop:
         departure_time_real,
         platform,
         notes,
+        cancelled=False,
     ):
         self.name = name
         self.arrival_time = arrival_time
@@ -26,6 +33,7 @@ class Stop:
         self.departure_time_real = departure_time_real
         self.platform = platform
         self.notes = notes
+        self.cancelled = cancelled
         self.problem = None
         self.detect_problems()
 
@@ -40,9 +48,8 @@ class Stop:
         return f"{self.name}: {time_infos}"
 
     def detect_problems(self):
-        for note in self.notes:
-            if "halt entfällt" in note.lower():
-                self.problem = TrainProblem.STOP_NOT_APPLICABLE
+        if self.cancelled or any(is_stop_cancelled_note(n) for n in self.notes):
+            self.problem = TrainProblem.STOP_NOT_APPLICABLE
 
     def get_arrival_delay(self):
         """Delay in minutes; negative if early, 0 without real-time data."""
@@ -128,9 +135,10 @@ def parse_stop(json_data):
     departure_time_real = _get_time(json_data, "ezAbfahrtsZeitpunkt", "ezAbgangsDatum")
     arrival_time = _get_time(json_data, "ankunftsZeitpunkt", "ankunftsDatum")
     arrival_time_real = _get_time(json_data, "ezAnkunftsZeitpunkt", "ezAnkunftsDatum")
-    notes = []
-    for note in json_data.get("priorisierteMeldungen", []):
-        notes.append(note["text"])
+    raw_notes = collect_notes(json_data)
+    cancelled = has_cancelled_flag(json_data) or any(
+        is_stop_cancelled_note(note) for note in raw_notes
+    )
     return Stop(
         name,
         arrival_time,
@@ -138,5 +146,6 @@ def parse_stop(json_data):
         departure_time,
         departure_time_real,
         platform,
-        notes,
+        note_texts(raw_notes),
+        cancelled,
     )

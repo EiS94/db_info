@@ -1,13 +1,20 @@
 from .Stop import format_time, parse_stop
-from .TrainProblem import TrainProblem
+from .TrainProblem import (
+    TrainProblem,
+    collect_notes,
+    has_cancelled_flag,
+    is_trip_cancelled_note,
+    note_texts,
+)
 
 
 class Train:
-    def __init__(self, name, direction, stops, notes):
+    def __init__(self, name, direction, stops, notes, cancelled=False):
         self.name = name.replace(" InterCityExpress", "").replace("R-Bahn ", "").replace("S-Bahn ", "")
         self.direction = direction
         self.stops = stops
         self.notes = notes
+        self.cancelled = cancelled
         self.problems = {}
         self.detect_problems()
 
@@ -18,9 +25,8 @@ class Train:
         return f"{self.name}{direction}"
 
     def detect_problems(self):
-        for note in self.notes:
-            if "verbindung fällt aus" in note.lower():
-                self.problems[self.name] = TrainProblem.CANCELED
+        if self.cancelled or any(is_trip_cancelled_note(n) for n in self.notes):
+            self.problems[self.name] = TrainProblem.CANCELED
         if self.name != "Fußweg" and self.stops:
             if self.stops[0].problem == TrainProblem.STOP_NOT_APPLICABLE:
                 self.problems[self.stops[0]] = TrainProblem.STOP_NOT_APPLICABLE
@@ -120,10 +126,11 @@ def parse_train(json_data):
     else:
         destination = verkehrsmittel.get("richtung") or json_data.get("richtung")
 
-    notes = []
-    for note in json_data.get("priorisierteMeldungen", []):
-        notes.append(note["text"])
+    raw_notes = collect_notes(json_data)
+    cancelled = has_cancelled_flag(json_data) or any(
+        is_trip_cancelled_note(note) for note in raw_notes
+    )
     stops = []
     for stop in json_data.get("halte", []):
         stops.append(parse_stop(stop))
-    return Train(name, destination, stops, notes)
+    return Train(name, destination, stops, note_texts(raw_notes), cancelled)

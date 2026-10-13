@@ -1,6 +1,11 @@
 from .Stop import format_time
 from .Train import parse_train
-from .TrainProblem import TrainProblem
+from .TrainProblem import (
+    TrainProblem,
+    collect_notes,
+    has_cancelled_flag,
+    is_trip_cancelled_note,
+)
 
 import logging
 
@@ -8,8 +13,9 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class Journey:
-    def __init__(self, trains):
+    def __init__(self, trains, cancelled=False):
         self.trains = trains
+        self.cancelled = cancelled
         self.problems = {}
         self.detect_problems()
         name = ""
@@ -18,6 +24,9 @@ class Journey:
         self.name = name[0:-4]
 
     def detect_problems(self):
+        if self.cancelled:
+            # First entry, so to_json() reports it as "the" problem.
+            self.problems["Verbindung"] = TrainProblem.CANCELED
         for train in self.trains:
             self.problems.update(train.problems)
         for i in range(len(self.trains) - 1):
@@ -183,4 +192,7 @@ def parse_trip(json_data):
             trains.pop(0)
         if trains[-1].name == "Fußweg":
             trains.pop(-1)
-    return Journey(trains)
+    cancelled = has_cancelled_flag(json_data) or any(
+        is_trip_cancelled_note(note) for note in collect_notes(json_data)
+    )
+    return Journey(trains, cancelled)

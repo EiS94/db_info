@@ -7,7 +7,7 @@ import pytest
 from homeassistant.util import dt as dt_util
 
 from custom_components.db_info import bahn_api
-from custom_components.db_info.Journey import Journey
+from custom_components.db_info.Journey import Journey, parse_trip
 from custom_components.db_info.Stop import Stop, format_time, parse_time
 from custom_components.db_info.Train import Train
 from custom_components.db_info.TrainProblem import TrainProblem
@@ -73,6 +73,74 @@ def test_missed_connection_is_reported():
     )
     journey = Journey([first, second])
     assert TrainProblem.CHANGE_NOT_ACCESSIBLE in journey.problems.values()
+
+
+def _dbnav_trip(first_stop_notes, trip_notes=()):
+    """Minimal DB Navigator v9 connection (Rohrbach(Ilm) -> München Hbf)."""
+    return {
+        "echtzeitNotizen": list(trip_notes),
+        "verbindungsAbschnitte": [{
+            "typ": "FAHRZEUG",
+            "langtext": "RE1 (4699)",
+            "richtung": "München Hbf",
+            "echtzeitNotizen": [],
+            "halte": [
+                {"ort": {"name": "Rohrbach(Ilm)"},
+                 "abgangsDatum": "2026-10-06T07:20:00+02:00",
+                 "echtzeitNotizen": list(first_stop_notes)},
+                {"ort": {"name": "München Hbf"},
+                 "ankunftsDatum": "2026-10-06T07:56:00+02:00",
+                 "ezAnkunftsDatum": "2026-10-06T07:56:00+02:00",
+                 "echtzeitNotizen": []},
+            ],
+        }],
+    }
+
+
+@pytest.mark.parametrize("note", [
+    {"text": "Halt entfällt", "prio": "HOCH"},
+    {"text": "Stop cancelled", "prio": "HOCH"},
+    {"key": "text.realtime.stop.cancelled", "text": "Arrêt supprimé"},
+    {"type": "HALT_AUSFALL", "text": "?"},
+])
+def test_dbnav_cancelled_departure_stop_is_reported(note):
+    """Issue #23: the v9 schema carries stop messages in "echtzeitNotizen"
+    (not "priorisierteMeldungen"), in the language of Accept-Language."""
+    journey = parse_trip(_dbnav_trip([note]))
+    assert journey.trains[0].stops[0].problem == TrainProblem.STOP_NOT_APPLICABLE
+    assert journey.to_json()["Problems"] == str(TrainProblem.STOP_NOT_APPLICABLE)
+
+
+@pytest.mark.parametrize("note", [
+    {"text": "Verbindung fällt aus"},
+    {"key": "text.realtime.connection.cancelled", "text": "Trip is not possible"},
+])
+def test_dbnav_cancelled_connection_is_reported(note):
+    journey = parse_trip(_dbnav_trip([], [note]))
+    assert journey.to_json()["Problems"] == str(TrainProblem.CANCELED)
+
+
+def test_dbnav_harmless_notes_are_not_problems():
+    journey = parse_trip(_dbnav_trip(
+        [{"key": "text.realtime.stop.entry.disabled", "text": "Hält nur zum Aussteigen"}],
+        [{"text": "Delay of previous train", "prio": "HOCH"}],
+    ))
+    assert journey.problems == {}
+
+
+def test_motis_cancelled_stop_is_reported():
+    itinerary = {
+        "legs": [{
+            "mode": "REGIONAL_RAIL",
+            "displayName": "RE1",
+            "from": {"name": "Rohrbach(Ilm)", "cancelled": True,
+                     "scheduledDeparture": "2026-10-06T05:20:00Z"},
+            "to": {"name": "München Hbf",
+                   "scheduledArrival": "2026-10-06T05:56:00Z"},
+        }],
+    }
+    journey = bahn_api._parse_motis_itineraries([itinerary])[0][0]
+    assert TrainProblem.STOP_NOT_APPLICABLE in journey.problems.values()
 
 
 def test_custom_efa_mot_params_are_separate_keys():
