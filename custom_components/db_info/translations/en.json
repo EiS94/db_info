@@ -1,0 +1,97 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up DB Info",
+        "description": "Choose start and destination (a person or zone with coordinates) and the means of transport to use.",
+        "data": {
+          "Startpunkt": "Start",
+          "Ziel": "Destination",
+          "Verkehrsmittel": "Means of transport",
+          "Update Intervall": "Update interval (minutes)",
+          "Max_Umstiege": "Max. number of transfers"
+        },
+        "data_description": {
+          "Startpunkt": "Person or zone to search connections from. The entity's current coordinates are used.",
+          "Ziel": "Person or zone to search connections to.",
+          "Verkehrsmittel": "Which means of transport to include. \"Custom\" opens an additional step to pick individual ones.",
+          "Update Intervall": "How often (in minutes) connections are fetched again.",
+          "Max_Umstiege": "Maximum number of transfers per connection. \"Unlimited\" applies no limit."
+        }
+      },
+      "custom_types": {
+        "title": "Select means of transport",
+        "data": {
+          "Verkehrsmittel_Custom": "Means of transport"
+        },
+        "data_description": {
+          "Verkehrsmittel_Custom": "Only connections using these means of transport are shown."
+        }
+      }
+    },
+    "error": {
+      "no_entities_with_coordinates": "No person or zone entities with coordinates found.",
+      "cannot_connect": "No connection could be found for this route. Check start/destination and try again."
+    },
+    "abort": {
+      "already_configured": "An entry for this start/destination combination already exists."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "DB Info options",
+        "data": {
+          "Verkehrsmittel": "Means of transport",
+          "Update Intervall": "Update interval (minutes)",
+          "Max_Umstiege": "Max. number of transfers"
+        },
+        "data_description": {
+          "Verkehrsmittel": "Which means of transport to include. \"Custom\" opens an additional step to pick individual ones.",
+          "Update Intervall": "How often (in minutes) connections are fetched again.",
+          "Max_Umstiege": "Maximum number of transfers per connection. \"Unlimited\" applies no limit."
+        }
+      },
+      "custom_types": {
+        "title": "Select means of transport",
+        "data": {
+          "Verkehrsmittel_Custom": "Means of transport"
+        },
+        "data_description": {
+          "Verkehrsmittel_Custom": "Only connections using these means of transport are shown."
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh_all": {
+      "name": "Refresh all connections",
+      "description": "Immediately refreshes all DB Info entries instead of waiting for their update interval."
+    }
+  },
+  "selector": {
+    "connection_type": {
+      "options": {
+        "all": "All means of transport",
+        "regional": "Regional transport only",
+        "long_distance": "Long-distance only",
+        "custom": "Custom …"
+      }
+    },
+    "max_transfers": {
+      "options": {
+        "unbegrenzt": "Unlimited",
+        "0": "Max. 0 transfers",
+        "1": "Max. 1 transfer",
+        "2": "Max. 2 transfers",
+        "3": "Max. 3 transfers",
+        "4": "Max. 4 transfers",
+        "5": "Max. 5 transfers",
+        "6": "Max. 6 transfers",
+        "7": "Max. 7 transfers",
+        "8": "Max. 8 transfers",
+        "9": "Max. 9 transfers"
+      }
+    }
+  }
+}

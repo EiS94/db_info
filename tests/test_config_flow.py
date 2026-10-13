@@ -8,6 +8,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.db_info.const import (
     CONF_CONNECTION_TYPE,
     CONF_DESTINATION,
+    CONF_MAX_TRANSFERS,
     CONF_START,
     CONF_TRANSPORT_TYPES,
     CONF_UPDATE_INTERVAL,
@@ -17,6 +18,7 @@ from custom_components.db_info.const import (
     CONNECTION_REGIONAL,
     DOMAIN,
 )
+from custom_components.db_info.config_flow import MAX_TRANSFERS_UNLIMITED
 
 SOME_JOURNEYS = {"journeys": {0: {"Name": "RE 1"}}}
 NO_JOURNEYS = {"journeys": {}}
@@ -64,6 +66,30 @@ async def test_no_entities_with_coordinates_shows_error(hass):
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["errors"]["base"] == "no_entities_with_coordinates"
+
+
+@pytest.mark.asyncio
+async def test_no_entities_recovers_once_zones_exist(hass):
+    """After the 'no entities' error, the same flow must succeed as soon as
+    usable entities exist."""
+    result = await _start_user_flow(hass)
+    assert result["errors"]["base"] == "no_entities_with_coordinates"
+
+    await _setup_zones(hass)
+
+    p1, p2 = _mock_get_trip_info(SOME_JOURNEYS)
+    with p1, p2:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_START: "zone.home",
+                CONF_DESTINATION: "zone.work",
+                CONF_CONNECTION_TYPE: CONNECTION_ALL,
+                CONF_UPDATE_INTERVAL: 10,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
 
 
 @pytest.mark.parametrize(
@@ -117,6 +143,22 @@ async def test_user_flow_cannot_connect_blocks_entry_creation(hass):
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["errors"]["base"] == "cannot_connect"
+
+    # Once the backend is reachable again, the same flow must recover.
+    p1, p2 = _mock_get_trip_info(SOME_JOURNEYS)
+    with p1, p2:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_START: "zone.home",
+                CONF_DESTINATION: "zone.work",
+                CONF_CONNECTION_TYPE: CONNECTION_ALL,
+                CONF_UPDATE_INTERVAL: 10,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Home -> Work"
 
 
 @pytest.mark.asyncio
@@ -219,6 +261,18 @@ async def test_custom_types_flow_cannot_connect(hass):
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["errors"]["base"] == "cannot_connect"
 
+    # The custom_types step must recover once the backend is reachable again.
+    p1, p2 = _mock_get_trip_info(SOME_JOURNEYS)
+    with p1, p2:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_TRANSPORT_TYPES: ["ICE"]},
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_CONNECTION_TYPE] == CONNECTION_CUSTOM
+    assert result["data"][CONF_TRANSPORT_TYPES] == ["ICE"]
+
 
 @pytest.mark.asyncio
 async def test_options_flow_update_interval_and_connection_type(hass):
@@ -294,3 +348,170 @@ async def test_options_flow_custom_types(hass):
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_CONNECTION_TYPE] == CONNECTION_CUSTOM
     assert result["data"][CONF_TRANSPORT_TYPES] == ["BUS", "TRAM"]
+
+
+@pytest.mark.asyncio
+async def test_user_flow_stores_max_transfers(hass):
+    """A chosen max-transfers option must be stored as an int in the options."""
+    await _setup_zones(hass)
+
+    p1, p2 = _mock_get_trip_info(SOME_JOURNEYS)
+    with p1, p2:
+        result = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_START: "zone.home",
+                CONF_DESTINATION: "zone.work",
+                CONF_CONNECTION_TYPE: CONNECTION_ALL,
+                CONF_UPDATE_INTERVAL: 10,
+                CONF_MAX_TRANSFERS: "2",
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["options"][CONF_MAX_TRANSFERS] == 2
+
+
+@pytest.mark.asyncio
+async def test_custom_types_flow_stores_max_transfers(hass):
+    """The max-transfers choice from the first step must survive the
+    custom_types step."""
+    await _setup_zones(hass)
+
+    p1, p2 = _mock_get_trip_info(SOME_JOURNEYS)
+    with p1, p2:
+        result = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_START: "zone.home",
+                CONF_DESTINATION: "zone.work",
+                CONF_CONNECTION_TYPE: CONNECTION_CUSTOM,
+                CONF_UPDATE_INTERVAL: 10,
+                CONF_MAX_TRANSFERS: "0",
+            },
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_TRANSPORT_TYPES: ["BUS"]},
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["options"][CONF_MAX_TRANSFERS] == 0
+
+
+@pytest.mark.asyncio
+async def test_start_entity_removed_before_submit(hass):
+    """If the start entity disappears between showing and submitting the
+    form, the flow must show 'cannot_connect' instead of crashing."""
+    await _setup_zones(hass)
+
+    result = await _start_user_flow(hass)
+    hass.states.async_remove("zone.home")
+
+    p1, p2 = _mock_get_trip_info(SOME_JOURNEYS)
+    with p1, p2:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_START: "zone.home",
+                CONF_DESTINATION: "zone.work",
+                CONF_CONNECTION_TYPE: CONNECTION_ALL,
+                CONF_UPDATE_INTERVAL: 10,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["errors"]["base"] == "cannot_connect"
+
+
+@pytest.mark.parametrize(
+    ("start", "destination"),
+    [("zone.nowhere", "zone.work"), ("zone.home", "zone.nowhere")],
+)
+@pytest.mark.asyncio
+async def test_entity_without_coordinates_cannot_connect(hass, start, destination):
+    """A start or destination without latitude/longitude must show
+    'cannot_connect' without querying any backend."""
+    await _setup_zones(hass)
+    hass.states.async_set("zone.nowhere", "0", {"friendly_name": "Nowhere"})
+
+    p1, p2 = _mock_get_trip_info(SOME_JOURNEYS)
+    with p1 as mock_get_trip_info, p2:
+        result = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_START: start,
+                CONF_DESTINATION: destination,
+                CONF_CONNECTION_TYPE: CONNECTION_ALL,
+                CONF_UPDATE_INTERVAL: 10,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["errors"]["base"] == "cannot_connect"
+    mock_get_trip_info.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_backend_exception_shows_cannot_connect(hass):
+    """An unexpected exception from the backend must be turned into
+    'cannot_connect' instead of aborting the flow."""
+    await _setup_zones(hass)
+
+    with patch(
+        "custom_components.db_info.config_flow.get_trip_info",
+        new=AsyncMock(side_effect=RuntimeError("boom")),
+    ):
+        result = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_START: "zone.home",
+                CONF_DESTINATION: "zone.work",
+                CONF_CONNECTION_TYPE: CONNECTION_ALL,
+                CONF_UPDATE_INTERVAL: 10,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["errors"]["base"] == "cannot_connect"
+
+
+@pytest.mark.parametrize(
+    ("current", "submitted", "expected"),
+    [(None, "3", 3), (3, MAX_TRANSFERS_UNLIMITED, None)],
+)
+@pytest.mark.asyncio
+async def test_options_flow_max_transfers(hass, current, submitted, expected):
+    """The options flow must convert the max-transfers option in both
+    directions: a number to an int, and 'unlimited' back to None."""
+    await _setup_zones(hass)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Home -> Work",
+        data={
+            CONF_START: "zone.home",
+            CONF_DESTINATION: "zone.work",
+            CONF_CONNECTION_TYPE: CONNECTION_ALL,
+        },
+        options={CONF_UPDATE_INTERVAL: 10, CONF_MAX_TRANSFERS: current},
+        unique_id="zone.home::zone.work",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_CONNECTION_TYPE: CONNECTION_ALL,
+            CONF_UPDATE_INTERVAL: 10,
+            CONF_MAX_TRANSFERS: submitted,
+        },
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_MAX_TRANSFERS] == expected

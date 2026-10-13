@@ -63,12 +63,8 @@ CONNECTION_TYPE_OPTIONS = [
 # with an explicit default avoids that ambiguity entirely.
 MAX_TRANSFERS_UNLIMITED = "unbegrenzt"
 
-MAX_TRANSFERS_OPTIONS = [
-    {"value": MAX_TRANSFERS_UNLIMITED, "label": "Unbegrenzt"},
-] + [
-    {"value": str(i), "label": f"Max. {i} Umstieg{'e' if i != 1 else ''}"}
-    for i in range(10)
-]
+# Labels come from translations/<lang>.json ("selector" -> "max_transfers").
+MAX_TRANSFERS_OPTIONS = [MAX_TRANSFERS_UNLIMITED] + [str(i) for i in range(10)]
 
 
 def _max_transfers_to_option(max_transfers):
@@ -105,6 +101,7 @@ def _build_main_schema(valid_inputs):
                 SelectSelectorConfig(
                     options=CONNECTION_TYPE_OPTIONS,
                     mode="dropdown",
+                    translation_key="connection_type",
                 )
             ),
             vol.Optional(CONF_UPDATE_INTERVAL, default=10): NumberSelector(
@@ -116,6 +113,7 @@ def _build_main_schema(valid_inputs):
                 SelectSelectorConfig(
                     options=MAX_TRANSFERS_OPTIONS,
                     mode="dropdown",
+                    translation_key="max_transfers",
                 )
             ),
         }
@@ -148,6 +146,7 @@ def _build_options_schema(current_connection_type, current_interval, current_max
                 SelectSelectorConfig(
                     options=CONNECTION_TYPE_OPTIONS,
                     mode="dropdown",
+                    translation_key="connection_type",
                 )
             ),
             vol.Required(
@@ -162,6 +161,7 @@ def _build_options_schema(current_connection_type, current_interval, current_max
                 SelectSelectorConfig(
                     options=MAX_TRANSFERS_OPTIONS,
                     mode="dropdown",
+                    translation_key="max_transfers",
                 )
             ),
         }

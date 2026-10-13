@@ -1,0 +1,97 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DB Info einrichten",
+        "description": "Wähle Start und Ziel (Person oder Zone mit Koordinaten) sowie die gewünschten Verkehrsmittel.",
+        "data": {
+          "Startpunkt": "Startpunkt",
+          "Ziel": "Ziel",
+          "Verkehrsmittel": "Verkehrsmittel",
+          "Update Intervall": "Update-Intervall (Minuten)",
+          "Max_Umstiege": "Max. Anzahl Umstiege"
+        },
+        "data_description": {
+          "Startpunkt": "Person oder Zone, von der aus Verbindungen gesucht werden. Es werden die aktuellen Koordinaten der Entität verwendet.",
+          "Ziel": "Person oder Zone, zu der Verbindungen gesucht werden.",
+          "Verkehrsmittel": "Welche Verkehrsmittel berücksichtigt werden. „Benutzerdefiniert“ öffnet einen weiteren Schritt zur Auswahl einzelner Verkehrsmittel.",
+          "Update Intervall": "Wie oft (in Minuten) die Verbindungen neu abgefragt werden.",
+          "Max_Umstiege": "Höchstzahl an Umstiegen pro Verbindung. „Unbegrenzt“ schränkt nicht ein."
+        }
+      },
+      "custom_types": {
+        "title": "Verkehrsmittel auswählen",
+        "data": {
+          "Verkehrsmittel_Custom": "Verkehrsmittel"
+        },
+        "data_description": {
+          "Verkehrsmittel_Custom": "Nur Verbindungen mit diesen Verkehrsmitteln werden angezeigt."
+        }
+      }
+    },
+    "error": {
+      "no_entities_with_coordinates": "Keine Person- oder Zone-Entitäten mit Koordinaten gefunden.",
+      "cannot_connect": "Es konnte keine Verbindung für diese Route ermittelt werden. Prüfe Start/Ziel und versuche es erneut."
+    },
+    "abort": {
+      "already_configured": "Für diese Start-Ziel-Kombination existiert bereits ein Eintrag."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "DB Info Optionen",
+        "data": {
+          "Verkehrsmittel": "Verkehrsmittel",
+          "Update Intervall": "Update-Intervall (Minuten)",
+          "Max_Umstiege": "Max. Anzahl Umstiege"
+        },
+        "data_description": {
+          "Verkehrsmittel": "Welche Verkehrsmittel berücksichtigt werden. „Benutzerdefiniert“ öffnet einen weiteren Schritt zur Auswahl einzelner Verkehrsmittel.",
+          "Update Intervall": "Wie oft (in Minuten) die Verbindungen neu abgefragt werden.",
+          "Max_Umstiege": "Höchstzahl an Umstiegen pro Verbindung. „Unbegrenzt“ schränkt nicht ein."
+        }
+      },
+      "custom_types": {
+        "title": "Verkehrsmittel auswählen",
+        "data": {
+          "Verkehrsmittel_Custom": "Verkehrsmittel"
+        },
+        "data_description": {
+          "Verkehrsmittel_Custom": "Nur Verbindungen mit diesen Verkehrsmitteln werden angezeigt."
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh_all": {
+      "name": "Alle Verbindungen aktualisieren",
+      "description": "Aktualisiert sofort alle DB-Info-Einträge, statt auf deren Update-Intervall zu warten."
+    }
+  },
+  "selector": {
+    "connection_type": {
+      "options": {
+        "all": "Alle Verkehrsmittel",
+        "regional": "Nur Nahverkehr",
+        "long_distance": "Nur Fernverkehr",
+        "custom": "Benutzerdefiniert …"
+      }
+    },
+    "max_transfers": {
+      "options": {
+        "unbegrenzt": "Unbegrenzt",
+        "0": "Max. 0 Umstiege",
+        "1": "Max. 1 Umstieg",
+        "2": "Max. 2 Umstiege",
+        "3": "Max. 3 Umstiege",
+        "4": "Max. 4 Umstiege",
+        "5": "Max. 5 Umstiege",
+        "6": "Max. 6 Umstiege",
+        "7": "Max. 7 Umstiege",
+        "8": "Max. 8 Umstiege",
+        "9": "Max. 9 Umstiege"
+      }
+    }
+  }
+}
