@@ -1,9 +1,15 @@
 """Unit tests for DBInfoUpdateCoordinator, now that it's its own module."""
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from homeassistant.core import State
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
 
 from custom_components.db_info.const import (
     CONF_CONNECTION_TYPE,
@@ -120,46 +126,38 @@ async def test_update_data_get_trip_info_exception_becomes_update_failed(hass):
 
 @pytest.mark.asyncio
 async def test_custom_departure_time_used_when_switch_on(hass):
-    """If the custom-time switch is on and the datetime has a real value,
-    it must be passed through as custom_datetime."""
+    """If the custom-time switch is on, the coordinator's custom time and
+    arrival flag must be passed through to get_trip_info."""
     await _setup_zones(hass)
     entry = _make_entry(hass)
     coordinator = DBInfoUpdateCoordinator(hass, entry)
+    custom_time = datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
 
-    switch_unique_id = f"{DOMAIN}_{entry.entry_id}_custom_time"
-    datetime_unique_id = f"{DOMAIN}_{entry.entry_id}_departure_time"
-    hass.states.async_set("switch.test_custom_time", "on")
-    hass.states.async_set("datetime.test_departure", "2026-07-28T10:00:00+00:00")
-
-    entity_reg_patch_targets = {
-        ("switch", DOMAIN, switch_unique_id): "switch.test_custom_time",
-        ("datetime", DOMAIN, datetime_unique_id): "datetime.test_departure",
-    }
-
-    def fake_get_entity_id(domain, platform, unique_id):
-        return entity_reg_patch_targets.get((domain, platform, unique_id))
+    coordinator.set_time_setting("custom_time", custom_time)
+    coordinator.set_time_setting("use_arrival_time", True)
+    coordinator.set_time_setting("use_custom_time", True)
 
     mock_get_trip_info = AsyncMock(return_value=SOME_JOURNEYS)
     with patch(
-        "custom_components.db_info.coordinator.er.async_get"
-    ) as mock_er_get, patch(
         "custom_components.db_info.coordinator.get_trip_info", new=mock_get_trip_info
     ):
-        mock_er_get.return_value.async_get_entity_id.side_effect = fake_get_entity_id
         await coordinator._async_update_data()
 
-    assert mock_get_trip_info.await_args.kwargs["custom_datetime"] == (
-        "2026-07-28T10:00:00+00:00"
-    )
+    assert mock_get_trip_info.await_args.kwargs["custom_datetime"] == custom_time
+    assert mock_get_trip_info.await_args.kwargs["is_arrival"] is True
 
 
 @pytest.mark.asyncio
-async def test_custom_departure_time_none_when_entities_missing(hass):
-    """If the switch/datetime entities don't exist yet (e.g. right during
-    initial setup), custom_datetime must simply be None, not raise."""
+async def test_custom_departure_time_none_when_switch_off(hass):
+    """With the custom-time switch off, neither the stored time nor the
+    arrival switch may influence the query."""
     await _setup_zones(hass)
     entry = _make_entry(hass)
     coordinator = DBInfoUpdateCoordinator(hass, entry)
+    coordinator.set_time_setting(
+        "custom_time", datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
+    )
+    coordinator.set_time_setting("use_arrival_time", True)
 
     mock_get_trip_info = AsyncMock(return_value=SOME_JOURNEYS)
     with patch(
@@ -168,3 +166,74 @@ async def test_custom_departure_time_none_when_entities_missing(hass):
         await coordinator._async_update_data()
 
     assert mock_get_trip_info.await_args.kwargs["custom_datetime"] is None
+    assert mock_get_trip_info.await_args.kwargs["is_arrival"] is False
+
+
+@pytest.mark.asyncio
+async def test_set_time_setting_only_requests_refresh_when_relevant(hass):
+    """Time and arrival flag only matter while the custom-time switch is on."""
+    entry = _make_entry(hass)
+    coordinator = DBInfoUpdateCoordinator(hass, entry)
+    custom_time = datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
+
+    assert coordinator.set_time_setting("custom_time", custom_time) is False
+    assert coordinator.set_time_setting("use_arrival_time", True) is False
+    assert coordinator.set_time_setting("use_custom_time", True) is True
+    assert coordinator.set_time_setting("use_custom_time", True) is False
+    assert coordinator.set_time_setting("use_arrival_time", False) is True
+    assert coordinator.set_time_setting("use_custom_time", False) is True
+
+
+@pytest.mark.asyncio
+async def test_time_settings_are_per_entry(hass):
+    """Two entries must never see each other's time settings."""
+    entry_a = _make_entry(hass)
+    entry_b = MockConfigEntry(
+        domain=DOMAIN,
+        title="Work -> Home",
+        data={
+            CONF_START: "zone.work",
+            CONF_DESTINATION: "zone.home",
+            CONF_CONNECTION_TYPE: CONNECTION_ALL,
+        },
+    )
+    entry_b.add_to_hass(hass)
+    coordinator_a = DBInfoUpdateCoordinator(hass, entry_a)
+    coordinator_b = DBInfoUpdateCoordinator(hass, entry_b)
+
+    coordinator_a.set_time_setting("use_custom_time", True)
+
+    assert coordinator_a.use_custom_time is True
+    assert coordinator_b.use_custom_time is False
+
+
+@pytest.mark.asyncio
+async def test_time_settings_seeded_from_restored_states(hass):
+    """The first refresh runs before the switch/datetime entities are
+    added, so the coordinator must already pick up their restored states."""
+    entry = _make_entry(hass)
+    entity_reg = er.async_get(hass)
+    for platform, suffix, object_id in (
+        ("switch", "_custom_time", "custom"),
+        ("switch", "_use_arrival_time", "arrival"),
+        ("datetime", "_departure_time", "time"),
+    ):
+        entity_reg.async_get_or_create(
+            platform, DOMAIN, f"{DOMAIN}_{entry.entry_id}{suffix}",
+            suggested_object_id=object_id,
+        )
+    mock_restore_cache(
+        hass,
+        [
+            State("switch.custom", "on"),
+            State("switch.arrival", "on"),
+            State("datetime.time", "2026-07-28T10:00:00+00:00"),
+        ],
+    )
+
+    coordinator = DBInfoUpdateCoordinator(hass, entry)
+
+    assert coordinator._get_custom_time() == (
+        datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc),
+        True,
+    )

@@ -1,4 +1,4 @@
-from .Stop import parse_stop
+from .Stop import format_time, parse_stop
 from .TrainProblem import TrainProblem
 
 
@@ -21,7 +21,7 @@ class Train:
         for note in self.notes:
             if "verbindung fällt aus" in note.lower():
                 self.problems[self.name] = TrainProblem.CANCELED
-        if self.name != "Fußweg":
+        if self.name != "Fußweg" and self.stops:
             if self.stops[0].problem == TrainProblem.STOP_NOT_APPLICABLE:
                 self.problems[self.stops[0]] = TrainProblem.STOP_NOT_APPLICABLE
             if self.stops[-1].problem == TrainProblem.STOP_NOT_APPLICABLE:
@@ -81,27 +81,15 @@ class Train:
         if self.name == "Fußweg":
             attributes = {"Name": "Fußweg"}
         else:
-            departure_time_real = self.get_departure_time_real()
-            if departure_time_real is not None:
-                departure_time_real = self.get_departure_time_real().strftime(
-                    "%Y-%m-%dT%H:%M:%S%z"
-                )
-            arrival_time_real = self.get_arrival_time_real()
-            if arrival_time_real is not None:
-                arrival_time_real = self.get_arrival_time_real().strftime(
-                    "%Y-%m-%dT%H:%M:%S%z"
-                )
             attributes = {
                 "Name": self.name,
                 "Departure": self.get_departure(),
-                "Departure Time": self.get_departure_time().strftime(
-                    "%Y-%m-%dT%H:%M:%S%z"
-                ),
-                "Departure Time Real": departure_time_real,
+                "Departure Time": format_time(self.get_departure_time()),
+                "Departure Time Real": format_time(self.get_departure_time_real()),
                 "Departure Platform": self.get_departure_platform(),
                 "Arrival": self.get_destination(),
-                "Arrival Time": self.get_arrival_time().strftime("%Y-%m-%dT%H:%M:%S%z"),
-                "Arrival Time Real": arrival_time_real,
+                "Arrival Time": format_time(self.get_arrival_time()),
+                "Arrival Time Real": format_time(self.get_arrival_time_real()),
                 "Arrival Platform": self.get_arrival_platform(),
                 # "Duration": self.get_duration(),
             }

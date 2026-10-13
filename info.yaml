@@ -2,7 +2,7 @@ name: DB Info
 content_in_root: false
 domains:
   - sensor
-homeassistant: "2023.8.0"
+homeassistant: "2024.12.0"
 render_readme: true
 zip_release: true
 filename: db_info

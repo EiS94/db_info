@@ -1,6 +1,11 @@
 from datetime import datetime
 
+from homeassistant.util import dt as dt_util
+
 from .TrainProblem import TrainProblem
+from .const import API_TIME_ZONE
+
+TIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 
 class Stop:
@@ -40,20 +45,28 @@ class Stop:
                 self.problem = TrainProblem.STOP_NOT_APPLICABLE
 
     def get_arrival_delay(self):
-        if self.arrival_time_real is not None:
-            delay = self.arrival_time_real - self.arrival_time
-            delay = delay.seconds
-            return delay / 60
-        else:
-            return 0
+        """Delay in minutes; negative if early, 0 without real-time data."""
+        if self.arrival_time_real is not None and self.arrival_time is not None:
+            return (self.arrival_time_real - self.arrival_time).total_seconds() / 60
+        return 0
 
     def get_departure_delay(self):
-        if self.departure_time_real is not None:
-            delay = self.departure_time_real - self.departure_time
-            delay = delay.seconds
-            return delay / 60
-        else:
-            return 0
+        """Delay in minutes; negative if early, 0 without real-time data."""
+        if self.departure_time_real is not None and self.departure_time is not None:
+            return (self.departure_time_real - self.departure_time).total_seconds() / 60
+        return 0
+
+
+def ensure_aware(time):
+    """Attach the API time zone to an offset-less datetime.
+
+    Times without a UTC offset (possible in EFA and DB responses) mean
+    German local time. Leaving them naive would make every later conversion assume
+    the TZ of the Home Assistant process instead (UTC in many containers).
+    """
+    if time is not None and time.tzinfo is None:
+        return time.replace(tzinfo=API_TIME_ZONE)
+    return time
 
 
 def parse_time(time_str):
@@ -61,7 +74,18 @@ def parse_time(time_str):
     # API this was originally written against did not. datetime.fromisoformat
     # handles both, so it replaces the previous fixed strptime format that
     # broke on the offset with "ValueError: unconverted data remains".
-    return datetime.fromisoformat(time_str)
+    return ensure_aware(datetime.fromisoformat(time_str))
+
+
+def format_time(time):
+    """Format a datetime for sensor attributes in Home Assistant's time zone.
+
+    All sources go through here, so attributes carry the same offset no
+    matter whether a backend answered in UTC or in local time.
+    """
+    if time is None:
+        return None
+    return dt_util.as_local(ensure_aware(time)).strftime(TIME_FORMAT)
 
 
 def _get_stop_name(json_data):

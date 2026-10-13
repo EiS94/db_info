@@ -12,7 +12,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
     for i in range(DEFAULT_MAX_CONNECTIONS):
         sensors.append(DBTrainSensor(coordinator, entry, i))
 
-    async_add_entities(sensors, True)
+    # No update_before_add: the coordinator already holds fresh data from
+    # async_config_entry_first_refresh, and update_before_add would make
+    # every sensor request yet another refresh (= extra API round trips).
+    async_add_entities(sensors)
 
 
 class DBTrainSensor(CoordinatorEntity, Entity):
@@ -28,22 +31,20 @@ class DBTrainSensor(CoordinatorEntity, Entity):
         self._attr_name = f"Verbindung {index + 1}"
         self._attr_unique_id = f"db_info_{entry.entry_id}_{index + 1}"
 
+    def _journey(self):
+        data = self.coordinator.data or {}
+        return (data.get("journeys") or {}).get(self.index)
+
     @property
     def state(self):
-        journeys = self.coordinator.data or {}
-        journey = journeys.get("journeys").get(self.index) or journeys.get(
-            "journeys"
-        ).get(str(self.index))
+        journey = self._journey()
         if journey:
             return journey.get("Departure Time Real") or journey.get("Departure Time")
         return None
 
     @property
     def extra_state_attributes(self):
-        journeys = self.coordinator.data or {}
-        journey = journeys.get("journeys").get(self.index) or journeys.get(
-            "journeys"
-        ).get(str(self.index))
+        journey = self._journey()
         if not journey:
             return {}
 

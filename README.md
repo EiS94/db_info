@@ -21,11 +21,18 @@ For example, you can get connections that you often need (e.g., home → main st
 
 ### 🔀 How connections are found
 
-Instead of relying on a single API, DB Info queries **several public transport data sources in parallel** for every request:
+Instead of relying on a single API, DB Info combines several public transport data sources. No API key or extra setup is required.
 
-Four regional EFA instances, automatically restricted to the ones actually covering the requested route
+1. **Primary source: DB Navigator API** (`app.services-bahn.de`). It is asked first, and if it returns usable connections, they are used directly.
+2. **Fallback sources**, queried **in parallel** only if the primary source returns nothing:
+   - **EFA**: `efa.de` (Germany-wide) and `vrr.de` (only queried if origin *and* destination are in North Rhine-Westphalia)
+   - **[Transitous](https://transitous.org)** (`transitous.org`, a community-run MOTIS instance)
 
-Out of the box, no extra setup is required — the four EFA sources work immediately after installation. Whichever source responds with a usable connection wins, preferring **real-time data** first and the **shortest travel time** second. If a source is unavailable or blocked, the others take over automatically — you won't notice unless you check the `Source` attribute on a sensor, which always shows which backend served that particular connection.
+   Among the fallback results, the source whose next connection has **real-time data** wins; if several do, the one with the **shortest travel time** wins.
+
+If a source is unavailable or blocked, the others take over automatically — you won't notice unless you check the `Source` attribute on a sensor, which always shows which backend served that particular connection.
+
+All times are reported in the time zone configured in Home Assistant, regardless of which source answered.
 
 ---
 
@@ -37,6 +44,44 @@ You can use the following as both **origin** and **destination**:
 - 📍 **Zones**
 
 This allows you, for example, to retrieve real-time data from a **user's current location** to their **home address**.
+
+Each origin → destination combination can be added once. The following options can also be changed later under **Configure**:
+
+| Option | Description |
+|---|---|
+| Verkehrsmittel | All, regional transport only, long-distance only, or a custom selection (S-Bahn, U-Bahn, Tram, Bus, Schiff, AST/Rufbus, ICE, IC/EC, Nahverkehr, Sonstige) |
+| Update-Intervall | Minutes between two updates (1–60, default 10) |
+| Max. Anzahl Umstiege | Unlimited, or 0–9 transfers (0 = direct connections only) |
+
+#### Entities per entry
+
+All entities of an entry are grouped under one device named after the route:
+
+| Entity | Description |
+|---|---|
+| `sensor.…_verbindung_1` … `_5` | The next five connections (see below) |
+| `button.…_refresh` | Refreshes this entry immediately |
+| `datetime.…_reisezeit` | A custom departure or arrival time |
+| `switch.…_benutzerdefinierte_zeit_verwenden` | When on, connections are searched for the *Reisezeit* instead of the current time |
+| `switch.…_ankunftszeit_verwenden` | When on (and the switch above is on), the *Reisezeit* is used as the desired **arrival** time instead of the departure time |
+
+Changing the switches or the *Reisezeit* triggers an immediate update. Their state is restored after a restart.
+
+#### Sensor state and attributes
+
+The sensor state is the departure time of the connection (real-time if available, otherwise scheduled). Attributes:
+
+| Attribute | Description |
+|---|---|
+| `Departure`, `Arrival` | Name of the first and last stop |
+| `Departure Time`, `Arrival Time` | Scheduled times |
+| `Departure Time Real`, `Arrival Time Real` | Real-time values, `null` if no real-time data is available |
+| `Duration` | Travel time, e.g. `1h 5min` |
+| `Name` | Lines used, e.g. `RE 1 -> S 2` |
+| `Transfers` | Number of transfers |
+| `Problems` | e.g. delay, cancellation, stop not served, or a transfer that can't be made |
+| `Details` | Per-segment details (times, platforms) |
+| `Source` | Which data source served this connection |
 
 <img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/sensor_example.png" alt="Sensor Example" width="300"/>
 
@@ -201,7 +246,7 @@ Copy the folder: `custom_components/db_info` into your Home Assistant directory:
 
 ### 🗑️ Removal
 
-1. Go to **Settings → Devices & Services → DB Info**, open each entry and remove it (this also removes its sensors, button, switch and datetime entity).
+1. Go to **Settings → Devices & Services → DB Info**, open each entry and remove it (this also removes its sensors, button, switches and datetime entity).
 2. If installed via HACS, remove it there too: **HACS → Integrations → DB Info → ⋮ → Remove**.
 3. If installed manually, delete the `custom_components/db_info` folder from your Home Assistant config directory.
 4. Restart Home Assistant.

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.restore_state import async_get as async_get_restore_state
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .bahn_api import get_trip_info
 from .const import (
@@ -20,9 +22,12 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     CONNECTION_ALL,
     CONNECTION_CUSTOM,
+    DATETIME_ENTITY_SUFFIX,
     DEFAULT_MAX_TRANSFERS,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
+    USE_ARRIVAL_TIME_SUFFIX,
+    USE_CUSTOM_TIME_SUFFIX,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,59 +58,57 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(minutes=int(update_interval)),
         )
 
-    def _get_custom_departure_time(self) -> tuple[str | None, bool]:
-        """Return (custom_time, is_arrival) based on the two time switches.
+        # Time settings of this entry, owned by the coordinator and written
+        # by the switch/datetime entities (see set_time_setting). They are
+        # seeded from the restored entity states so that the very first
+        # refresh - which runs before the entities are added - already uses
+        # them instead of silently falling back to "now".
+        self.use_custom_time = False
+        self.use_arrival_time = False
+        self.custom_time: datetime | None = None
+        self._restore_time_settings()
 
-        - custom_time is None unless "Benutzerdefinierte Zeit verwenden" is on.
-        - is_arrival is only meaningful when custom_time is not None; it
-          reflects the "Ankunftszeit verwenden" switch.
-        """
+    def _restore_time_settings(self) -> None:
+        """Seed the time settings from the entities' last stored states."""
+        try:
+            last_states = async_get_restore_state(self.hass).last_states
+        except Exception:  # pylint: disable=broad-except
+            # Restore-state storage not loaded (e.g. in some tests); the
+            # entities still push their restored values once added.
+            return
+
         entity_reg = er.async_get(self.hass)
 
-        switch_unique_id = f"{DOMAIN}_{self.entry.entry_id}_custom_time"
-        switch_entity_id = entity_reg.async_get_entity_id(
-            "switch", DOMAIN, switch_unique_id
-        )
-
-        arrival_switch_unique_id = f"{DOMAIN}_{self.entry.entry_id}_use_arrival_time"
-        arrival_switch_entity_id = entity_reg.async_get_entity_id(
-            "switch", DOMAIN, arrival_switch_unique_id
-        )
-
-        datetime_unique_id = f"{DOMAIN}_{self.entry.entry_id}_departure_time"
-        datetime_entity_id = entity_reg.async_get_entity_id(
-            "datetime", DOMAIN, datetime_unique_id
-        )
-
-        if not switch_entity_id or not datetime_entity_id:
-            _LOGGER.debug(
-                "Custom time entities not found yet (switch: %s, datetime: %s)",
-                switch_entity_id,
-                datetime_entity_id,
+        def last_state(platform: str, suffix: str) -> str | None:
+            entity_id = entity_reg.async_get_entity_id(
+                platform, DOMAIN, f"{DOMAIN}_{self.entry.entry_id}{suffix}"
             )
+            stored = last_states.get(entity_id) if entity_id else None
+            return stored.state.state if stored else None
+
+        self.use_custom_time = last_state("switch", USE_CUSTOM_TIME_SUFFIX) == "on"
+        self.use_arrival_time = last_state("switch", USE_ARRIVAL_TIME_SUFFIX) == "on"
+        stored_time = last_state("datetime", DATETIME_ENTITY_SUFFIX)
+        if stored_time:
+            self.custom_time = dt_util.parse_datetime(stored_time)
+
+    def set_time_setting(self, name: str, value) -> bool:
+        """Update one time setting; return True if a refresh is needed.
+
+        name is one of "use_custom_time", "use_arrival_time", "custom_time".
+        Changes to the arrival switch or the time itself only affect the
+        query while the custom-time switch is on.
+        """
+        if getattr(self, name) == value:
+            return False
+        setattr(self, name, value)
+        return name == "use_custom_time" or self.use_custom_time
+
+    def _get_custom_time(self) -> tuple[datetime | None, bool]:
+        """Return (custom_time, is_arrival) for the next query."""
+        if not self.use_custom_time or self.custom_time is None:
             return None, False
-
-        custom_time_state = self.hass.states.get(switch_entity_id)
-        if not custom_time_state or custom_time_state.state != "on":
-            return None, False
-
-        datetime_state = self.hass.states.get(datetime_entity_id)
-        if not datetime_state or datetime_state.state in ("unknown", "unavailable"):
-            return None, False
-
-        is_arrival = False
-        if arrival_switch_entity_id:
-            arrival_state = self.hass.states.get(arrival_switch_entity_id)
-            is_arrival = bool(arrival_state and arrival_state.state == "on")
-        else:
-            _LOGGER.debug("Arrival-time switch not found yet, defaulting to departure")
-
-        _LOGGER.debug(
-            "Using custom %s time: %s",
-            "arrival" if is_arrival else "departure",
-            datetime_state.state,
-        )
-        return datetime_state.state, is_arrival
+        return self.custom_time, self.use_arrival_time
 
     async def _async_update_data(self):
         """Fetch data from the configured trip-planning sources."""
@@ -155,7 +158,7 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
                     or None
                 )
 
-            custom_datetime, is_arrival = self._get_custom_departure_time()
+            custom_datetime, is_arrival = self._get_custom_time()
 
             max_transfers = entry.options.get(
                 CONF_MAX_TRANSFERS,

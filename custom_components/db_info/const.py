@@ -1,5 +1,7 @@
 """Constants for the db_info integration."""
 
+from zoneinfo import ZoneInfo
+
 DOMAIN = "db_info"
 
 # Configuration keys
@@ -37,3 +39,10 @@ TRANSPORT_TYPES_LONG_DISTANCE = ["ICE", "IC/EC"]
 # Entity suffixes
 DATETIME_ENTITY_SUFFIX = "_departure_time"
 USE_CUSTOM_TIME_SUFFIX = "_custom_time"
+USE_ARRIVAL_TIME_SUFFIX = "_use_arrival_time"
+
+# All trip-planning backends are German and interpret request times without
+# an explicit UTC offset as German local time. Request times are therefore
+# always built in this zone, and offset-less times in responses are
+# interpreted in it - independent of the TZ of the Home Assistant process.
+API_TIME_ZONE = ZoneInfo("Europe/Berlin")

@@ -2,6 +2,6 @@
   "name": "DB Info",
   "render_readme": true,
   "country": ["DE", "AT", "CH"],
-  "homeassistant": "2023.8.0",
+  "homeassistant": "2024.12.0",
   "content_in_root": false
 }

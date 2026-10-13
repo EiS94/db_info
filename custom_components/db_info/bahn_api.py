@@ -1,7 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import asyncio
 import logging
-import random
 import uuid
 
 import aiohttp
@@ -10,13 +9,12 @@ import curl_cffi
 
 from .Journey import Journey, parse_trip
 from .Train import Train
-from .Stop import Stop
+from .Stop import Stop, ensure_aware
 from .const import (
+    API_TIME_ZONE,
     CONNECTION_REGIONAL,
     CONNECTION_LONG_DISTANCE,
     CONNECTION_CUSTOM,
-    TRANSPORT_TYPES_REGIONAL,
-    TRANSPORT_TYPES_LONG_DISTANCE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,17 +49,6 @@ def _in_bounds(coordinates, bounds):
 # Timeout for a single EFA endpoint. Requests run concurrently, so this is
 # the worst-case additional wait time, not a sum across all endpoints.
 _EFA_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
-
-# The official bahn.de trip-planner API. It usually has the best/most
-# reliable real-time data of all sources, but is an internal API not meant
-# for external use, so it is queried with a rotating browser-like
-# User-Agent to reduce the chance of being blocked as bot traffic.
-DB_API_URL = "https://www.bahn.de/web/api/angebote/fahrplan"
-_DB_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
-# Short timeout for the best-effort cookie warm-up - it must never be
-# allowed to eat into the overall latency budget the way a full 10s+10s
-# worst case would.
-_DB_WARMUP_TIMEOUT = aiohttp.ClientTimeout(total=5)
 
 DBNAV_API_URL = "https://app.services-bahn.de/mob/angebote/fahrplan"
 _DBNAV_CONTENT_TYPE = "application/x.db.vendo.mob.verbindungssuche.v9+json"
@@ -134,78 +121,6 @@ def _build_dbnav_verkehrsmittel(connection_type, custom_types=None):
     return _DBNAV_VERKEHRSMITTEL_ALL
 
 
-def _chrome_profile():
-    major = random.randint(126, 128)
-    patch = random.randint(6478, 6668)
-    build = random.randint(29, 234)
-    return {
-        "user_agent": (
-            f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            f"AppleWebKit/537.36 (KHTML, like Gecko) "
-            f"Chrome/{major}.0.{patch}.{build} Safari/537.36"
-        ),
-        "accept_language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-        # Real Chrome sends these Client-Hints headers on every request.
-        "client_hints": {
-            "sec-ch-ua": (
-                f'"Chromium";v="{major}", "Not)A;Brand";v="8", '
-                f'"Google Chrome";v="{major}"'
-            ),
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-        },
-    }
-
-
-def _firefox_profile():
-    major = random.randint(128, 130)
-    esr = "esr" if random.random() < 0.3 else ""
-    return {
-        "user_agent": (
-            f"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{major}.0) "
-            f"Gecko/20100101 Firefox/{major}.0{esr}"
-        ),
-        "accept_language": "de-DE,de;q=0.8,en-US;q=0.5,en;q=0.3",
-        "client_hints": {},
-    }
-
-
-def _random_browser_profile():
-    return _firefox_profile() if random.random() <= 0.2 else _chrome_profile()
-
-
-def _db_navigation_headers(profile):
-    return {
-        "User-Agent": profile["user_agent"],
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;q=0.9,"
-            "image/avif,image/webp,*/*;q=0.8"
-        ),
-        "Accept-Language": profile["accept_language"],
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1",
-        **profile["client_hints"],
-    }
-
-
-def _db_api_headers(profile, correlation_id):
-    return {
-        "User-Agent": profile["user_agent"],
-        "Accept": "application/json",
-        "Accept-Language": profile["accept_language"],
-        "Content-Type": "application/json; charset=utf-8",
-        "Referer": "https://www.bahn.de/buchung/fahrplan/suche",
-        "Origin": "https://www.bahn.de",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "x-correlation-id": correlation_id,
-        **profile["client_hints"],
-    }
-
 # Some EFA instances (e.g. bahnland-bayern.de) reject requests that carry
 # aiohttp's default "Python/3.x aiohttp/3.x" User-Agent as bot traffic and
 # answer with HTTP 403. A browser-like User-Agent avoids that.
@@ -237,9 +152,6 @@ _REQUEST_HEADERS = {
 # class 20 = AST/Rufbus
 
 # inclMOT_N parameters use the index N, not the class value.
-# Mapping: MOT index → product class
-_MOT_ALL = {str(i): "true" for i in range(0, 21)}
-
 _MOT_LONG_DISTANCE = {
     "inclMOT_14": "true",  # IC/EC,
     "inclMOT_15": "true",  # IC/EC,
@@ -263,97 +175,43 @@ _MOT_REGIONAL = {
     "inclMOT_20": "true"  # AST/Rufbus
 }
 
-# Internal transport type → MOT inclMOT_N key
+# Internal transport type → inclMOT_N keys. Each key must be its own query
+# parameter: a combined key like "inclMOT_3&inclMOT_4" gets URL-encoded to
+# "inclMOT_3%26inclMOT_4" and is silently ignored by EFA.
 _TYPE_TO_MOT = {
-    "SBAHN": "inclMOT_1",
-    "UBAHN": "inclMOT_2",
-    "TRAM": "inclMOT_3&inclMOT_4",
-    "BUS": "inclMOT_5&inclMOT_6&inclMOT_7",
-    "SCHIFF": "inclMOT_9",
-    "AST/RUFBUS": "inclMOT_10&inclMOT_20",
-    "ICE": "inclMOT_16",
-    "IC/EC": "inclMOT_14&inclMOT_15",
-    "Sonstige": "inclMOT_17&inclMOT_8&inclMOT_11",
-    "NAHVERKEHR": "inclMOT_13"
+    "SBAHN": ["inclMOT_1"],
+    "UBAHN": ["inclMOT_2"],
+    "TRAM": ["inclMOT_3", "inclMOT_4"],
+    "BUS": ["inclMOT_5", "inclMOT_6", "inclMOT_7"],
+    "SCHIFF": ["inclMOT_9"],
+    "AST/RUFBUS": ["inclMOT_10", "inclMOT_20"],
+    "ICE": ["inclMOT_16"],
+    "IC/EC": ["inclMOT_14", "inclMOT_15"],
+    "SONSTIGE": ["inclMOT_8", "inclMOT_11", "inclMOT_17"],
+    "NAHVERKEHR": ["inclMOT_13"],
 }
 
 
 def _build_mot_params(connection_type, custom_types=None):
     """Return dict of inclMOT_N params for the given connection type."""
     if connection_type == CONNECTION_CUSTOM and custom_types:
-        mot = {}
-        for t in custom_types:
-            key = _TYPE_TO_MOT.get(t)
-            if key:
-                mot[key] = "true"
-        return {"includedMeans": "checkbox", **mot}
-    elif connection_type == CONNECTION_LONG_DISTANCE:
+        mot = {
+            key: "true"
+            for t in custom_types
+            for key in _TYPE_TO_MOT.get(t, [])
+        }
+        if mot:
+            return {"includedMeans": "checkbox", **mot}
+        # No usable mapping -> fall back to "all"
+    if connection_type == CONNECTION_LONG_DISTANCE:
         return {"includedMeans": "checkbox", **_MOT_LONG_DISTANCE}
-    elif connection_type == CONNECTION_REGIONAL:
+    if connection_type == CONNECTION_REGIONAL:
         return {"includedMeans": "checkbox", **_MOT_REGIONAL}
     # Default: all
     return {
         "includedMeans": "checkbox",
         **{f"inclMOT_{i}": "true" for i in range(0, 21)},
     }
-
-
-# Internal transport type → DB API "produktgattungen" value.
-# "SONSTIGE" has no equivalent category in the DB API and is omitted; a
-# custom selection consisting only of unmapped types falls back to "all".
-_TYPE_TO_PRODUKTGATTUNG = {
-    "SBAHN": "SBAHN",
-    "UBAHN": "UBAHN",
-    "TRAM": "TRAM",
-    "BUS": "BUS",
-    "SCHIFF": "SCHIFF",
-    "AST/RUFBUS": "ANRUFPFLICHTIG",
-    "ICE": "ICE",
-    "IC/EC": "EC_IC",
-    "NAHVERKEHR": "REGIONAL",
-}
-
-_PRODUKTGATTUNGEN_REGIONAL = [
-    "REGIONAL", "SBAHN", "BUS", "SCHIFF", "UBAHN", "TRAM", "ANRUFPFLICHTIG",
-]
-_PRODUKTGATTUNGEN_LONG_DISTANCE = ["ICE", "EC_IC", "IR"]
-_PRODUKTGATTUNGEN_ALL = _PRODUKTGATTUNGEN_LONG_DISTANCE + _PRODUKTGATTUNGEN_REGIONAL
-
-
-def _build_produktgattungen(connection_type, custom_types=None):
-    """Return list of "produktgattungen" for the DB API's given connection type."""
-    if connection_type == CONNECTION_CUSTOM and custom_types:
-        result = []
-        for t in custom_types:
-            value = _TYPE_TO_PRODUKTGATTUNG.get(t)
-            if value and value not in result:
-                result.append(value)
-        if result:
-            return result
-        # No usable mapping (e.g. only "SONSTIGE" selected) -> fall back to "all"
-
-    if connection_type == CONNECTION_LONG_DISTANCE:
-        return _PRODUKTGATTUNGEN_LONG_DISTANCE
-    if connection_type == CONNECTION_REGIONAL:
-        return _PRODUKTGATTUNGEN_REGIONAL
-    return _PRODUKTGATTUNGEN_ALL
-
-
-def convert_coordinates_to_db_format(coordinates):
-    """
-    :type coordinates: tuple[float, float, str]
-    :param coordinates: tuple of lat, lng coordinates, e.g. (50.0014936, 8.2591178)
-    :return: string of the coordinates in db-format: # Y=..@X=.. Coordinates (without decimal point, 6 decimal places must be specified)
-    """
-    lat_split = str(coordinates[0]).split(".")
-    dec = lat_split[1][0:6].ljust(6, "0")
-    lat = f"{lat_split[0]}{dec}"
-
-    lng_split = str(coordinates[1]).split(".")
-    dec = lng_split[1][0:6].ljust(6, "0")
-    lng = f"{lng_split[0]}{dec}"
-
-    return f"Y={lat}@X={lng}"
 
 
 def _parse_efa_time(iso_str):
@@ -366,7 +224,7 @@ def _parse_efa_time(iso_str):
                 tzinfo=timezone.utc
             )
 
-        return datetime.fromisoformat(iso_str)
+        return ensure_aware(datetime.fromisoformat(iso_str))
 
     except Exception:
         return None
@@ -626,7 +484,7 @@ def _parse_motis_itineraries(itineraries):
             if stops:
                 trains.append(Train(train_name, direction, stops, notes))
 
-        # Strip leading/trailing walk legs, matching the EFA/db.de parsers
+        # Strip leading/trailing walk legs, matching the EFA/DB Navigator parsers
         if len(trains) > 1:
             if trains[0].name == "Fußweg":
                 trains.pop(0)
@@ -800,64 +658,6 @@ def _score_result(result):
     return (0 if has_realtime else 1, first_journey.get_duration())
 
 
-async def _fetch_from_db_api(session, data):
-    name = "bahn.de"
-    url = DB_API_URL
-    correlation_id = f"{uuid.uuid4()}_{uuid.uuid4()}"
-    profile = _random_browser_profile()
-
-    try:
-        async with session.get(
-                "https://www.bahn.de/buchung/fahrplan/suche",
-                headers=_db_navigation_headers(profile),
-                timeout=_DB_WARMUP_TIMEOUT,
-        ) as warmup_response:
-            await warmup_response.read()
-    except (aiohttp.ClientError, asyncio.TimeoutError):
-        pass  # best-effort only; proceed to the real request regardless
-
-    headers = _db_api_headers(profile, correlation_id)
-
-    try:
-        async with session.post(
-                url, headers=headers, json=data, timeout=_DB_REQUEST_TIMEOUT
-        ) as response:
-            response.raise_for_status()
-            json_data = await response.json()
-    except asyncio.TimeoutError:
-        _LOGGER.warning(
-            "DB API '%s' (%s) not reachable: timed out after %ss",
-            name, url, _DB_REQUEST_TIMEOUT.total,
-        )
-        return None
-    except aiohttp.ClientError as err:
-        _LOGGER.warning(
-            "DB API '%s' (%s) not reachable: %s: %s",
-            name, url, type(err).__name__, err or "no further details",
-        )
-        return None
-    except Exception as err:  # pylint: disable=broad-except
-        _LOGGER.warning(
-            "DB API '%s' (%s) returned invalid data: %s: %s",
-            name, url, type(err).__name__, err or "no further details",
-        )
-        return None
-
-    try:
-        journeys = [
-            parse_trip(journey) for journey in json_data.get("verbindungen", [])
-        ]
-    except Exception as err:  # pylint: disable=broad-except
-        _LOGGER.warning("Error parsing response from '%s': %s", name, err)
-        return None
-
-    if not journeys:
-        _LOGGER.debug("DB API '%s' returned no journeys", name)
-        return None
-
-    return {"name": name, "url": url, "journeys": journeys}
-
-
 async def _fetch_from_dbnav_api(
         start_coordinates,
         destination_coordinates,
@@ -979,7 +779,7 @@ def _finalize_result(result, max_transfers, time):
         journey_json["Source"] = result["name"]
         json_output["journeys"][i] = journey_json
 
-    _LOGGER.info(
+    _LOGGER.debug(
         "Successfully fetched %d journeys (source: %s), timestamp: %f",
         len(journeys),
         result["name"],
@@ -1007,29 +807,30 @@ async def get_trip_info(
         # potentially rejected or misinterpreted.
         max_transfers = int(max_transfers)
 
-    # Resolve departure time
+    # Resolve the request time - always in API_TIME_ZONE, never via a bare
+    # astimezone(), which would use the TZ of the HA process (often UTC in
+    # containers) and shift the offset-less EFA requests by 1-2h.
+    time = datetime.now(API_TIME_ZONE)
     if custom_datetime:
         try:
             if isinstance(custom_datetime, str):
-                time = datetime.fromisoformat(custom_datetime).astimezone()
-            elif isinstance(custom_datetime, datetime):
-                time = custom_datetime.astimezone()
+                custom_datetime = datetime.fromisoformat(custom_datetime)
+            if isinstance(custom_datetime, datetime):
+                time = ensure_aware(custom_datetime).astimezone(API_TIME_ZONE)
+                _LOGGER.debug("Using custom %s time: %s",
+                              "arrival" if is_arrival else "departure", time)
             else:
                 _LOGGER.warning(
                     "Unexpected custom_datetime type: %s. Using current time.",
                     type(custom_datetime),
                 )
-                time = datetime.now().astimezone()
-            _LOGGER.info("Using custom departure time: %s", time)
         except (ValueError, AttributeError) as err:
             _LOGGER.warning(
                 "Could not parse custom datetime '%s': %s. Using current time.",
                 custom_datetime,
                 err,
             )
-            time = datetime.now().astimezone()
-    else:
-        time = datetime.now().astimezone()
+    custom_time_key = time.isoformat() if custom_datetime else None
 
     dbnav_result = await _fetch_from_dbnav_api(
         start_coordinates,
@@ -1041,18 +842,18 @@ async def get_trip_info(
         is_arrival,
     )
     if dbnav_result:
-        _LOGGER.info(
-            "Using primary source '%s' (DB Navigator), skipping EFA/bahn.de/transitous.org",
+        _LOGGER.debug(
+            "Using primary source '%s' (DB Navigator), skipping EFA/transitous.org",
             dbnav_result["name"],
         )
         return _finalize_result(dbnav_result, max_transfers, time)
 
     _LOGGER.debug(
         "Primary source 'app.services-bahn.de' returned nothing usable, "
-        "falling back to EFA + bahn.de + transitous.org"
+        "falling back to EFA + transitous.org"
     )
 
-    # --- Fallback: EFA + bahn.de + transitous.org, in parallel ------------
+    # --- Fallback: EFA + transitous.org, in parallel -----------------------
     applicable_efa_apis = [
         api for api in EFA_APIS
         if _in_bounds(start_coordinates, api["bounds"])
@@ -1065,9 +866,9 @@ async def get_trip_info(
             ", ".join(skipped_apis),
         )
 
-    total_sources = len(applicable_efa_apis) + 2  # + bahn.de + transitous.org (MOTIS)
+    total_sources = len(applicable_efa_apis) + 1  # + transitous.org (MOTIS)
     _LOGGER.debug(
-        "Fetching trip info from %d fallback APIs in parallel (%d EFA + bahn.de + transitous.org)",
+        "Fetching trip info from %d fallback APIs in parallel (%d EFA + transitous.org)",
         total_sources, len(applicable_efa_apis),
     )
 
@@ -1088,7 +889,7 @@ async def get_trip_info(
         "type_destination": "coord",
         "name_destination": coord_dest,
         "itdDateDayMonthYear": time.strftime("%d.%m.%Y"),
-        "itdTime": time.astimezone().strftime("%H:%M"),
+        "itdTime": time.strftime("%H:%M"),
         "itdTripDateTimeDepArr": "arr" if is_arrival else "dep",
         "coordOutputFormat": "WGS84[dd.ddddd]",
         "useRealtime": "1",
@@ -1105,32 +906,6 @@ async def get_trip_info(
         # EFA: 0 = Direktverbindungen only, 1, 2, ... = max. Anzahl Umstiege.
         # Requires ptOptionsActive=1 (already set above).
         params["maxChanges"] = str(max_transfers)
-
-    db_data = {
-        "abfahrtsHalt": convert_coordinates_to_db_format(start_coordinates),
-        "anfrageZeitpunkt": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "ankunftsHalt": convert_coordinates_to_db_format(destination_coordinates),
-        "ankunftSuche": "ANKUNFT" if is_arrival else "ABFAHRT",
-        "klasse": "KLASSE_2",
-        "produktgattungen": _build_produktgattungen(connection_type, transport_types),
-        "reisende": [
-            {
-                "typ": "ERWACHSENER",
-                "ermaessigungen": [
-                    {"art": "KEINE_ERMAESSIGUNG", "klasse": "KLASSENLOS"}
-                ],
-                "alter": [],
-                "anzahl": 1,
-            }
-        ],
-        "schnelleVerbindungen": True,
-        "sitzplatzOnly": False,
-        "bikeCarriage": False,
-        "reservierungsKontingenteVorhanden": False,
-    }
-    if max_transfers is not None:
-        # bahn.de/vendo API: 0 = Direktverbindungen only, 1, 2, ... = max. Anzahl Umstiege.
-        db_data["maxUmstiege"] = max_transfers
 
     motis_params = {
         "fromPlace": f"{lat_s},{lon_s}",
@@ -1154,14 +929,13 @@ async def get_trip_info(
         tuple(sorted(transport_types)) if transport_types else None,
         max_transfers,
         is_arrival,
-        custom_datetime if isinstance(custom_datetime, str) else None,
+        custom_time_key,
     )
     if motis_state is None:
         motis_state = {}
 
     async with aiohttp.ClientSession() as session:
         tasks = [_fetch_from_api(session, api, params) for api in applicable_efa_apis]
-        tasks.append(_fetch_from_db_api(session, db_data))
         tasks.append(
             _fetch_from_motis(session, motis_params, motis_cache_key, motis_state)
         )
@@ -1171,7 +945,7 @@ async def get_trip_info(
 
     if not valid_results:
         _LOGGER.error(
-            "None of the %d fallback APIs (EFA + bahn.de + transitous.org) "
+            "None of the %d fallback APIs (EFA + transitous.org) "
             "returned usable data, and the primary DB Navigator source was "
             "also empty",
             total_sources,
@@ -1183,7 +957,7 @@ async def get_trip_info(
     has_realtime = best_score[0] == 0
     next_connection_duration = best_score[1]
 
-    _LOGGER.info(
+    _LOGGER.debug(
         "Using fallback result from '%s' (%d/%d fallback sources usable, "
         "next connection: realtime=%s, duration=%s)",
         best["name"],

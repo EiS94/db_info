@@ -1,5 +1,4 @@
-import io
-
+from .Stop import format_time
 from .Train import parse_train
 from .TrainProblem import TrainProblem
 
@@ -31,7 +30,6 @@ class Journey:
                     train2 = self.trains[i + 2]
                 else:
                     continue
-            i += 1
             if (
                     train1.stops[-1].arrival_time_real is not None
                     and train2.stops[0].departure_time_real is not None
@@ -51,7 +49,9 @@ class Journey:
                 change_time = (
                         train2.stops[0].departure_time - train1.stops[-1].arrival_time
                 )
-            if change_time.seconds / 60 < 2:
+            # total_seconds(), not .seconds: a missed connection gives a
+            # negative timedelta, whose .seconds is close to 86400.
+            if change_time.total_seconds() / 60 < 2:
                 self.problems[
                     f"{train1.get_destination()} -> {train2.get_departure()}"
                 ] = TrainProblem.CHANGE_NOT_ACCESSIBLE
@@ -101,28 +101,19 @@ class Journey:
         problems = None
         if len(self.problems) > 0:
             problems = str(next(iter(self.problems.values())))
-        name = ""
-        for train in self.trains:
-            name += train.name + " -> "
-        dt_real = self.get_departure_time_real()
-        if dt_real is not None:
-            dt_real = dt_real.astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
-        at_real = self.get_arrival_time_real()
-        if at_real is not None:
-            at_real = at_real.astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
         trains = []
         for train in self.trains:
             trains.append(train.to_json())
         attributes = {
-            "Name": name[0:-4],
+            "Name": self.name,
             "Departure": self.get_departure(),
             "Arrival": self.get_destination(),
             "Transfers": self.get_number_of_train_changes(),
             "Duration": parse_duration(self.get_duration()),
-            "Departure Time": self.get_departure_time().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "Departure Time Real": dt_real,
-            "Arrival Time": self.get_arrival_time().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "Arrival Time Real": at_real,
+            "Departure Time": format_time(self.get_departure_time()),
+            "Departure Time Real": format_time(self.get_departure_time_real()),
+            "Arrival Time": format_time(self.get_arrival_time()),
+            "Arrival Time Real": format_time(self.get_arrival_time_real()),
             "Problems": problems,
             "Details": str(trains).replace("None", "null"),
         }
@@ -168,7 +159,7 @@ def detect_image_size(journey):
 def parse_duration(time):
     if time is None:
         return ""
-    hours, remainder = divmod(time.seconds, 3600)
+    hours, remainder = divmod(int(time.total_seconds()), 3600)
     minutes = remainder // 60
     if hours > 0:
         return f"{hours}h {minutes}min"
