@@ -54,7 +54,7 @@ DBNAV_API_URL = "https://app.services-bahn.de/mob/angebote/fahrplan"
 _DBNAV_CONTENT_TYPE = "application/x.db.vendo.mob.verbindungssuche.v9+json"
 _DBNAV_REQUEST_TIMEOUT = 10  # seconds
 
-_DBNAV_IMPERSONATE = "chrome124"
+_DBNAV_IMPERSONATE = "chrome131"
 
 
 def _dbnav_headers(correlation_id):

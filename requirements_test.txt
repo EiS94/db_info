@@ -14,4 +14,4 @@ pytest-asyncio
 # this plain `pip install -r requirements_test.txt` step does not - without
 # this line, importing the integration during test collection fails with
 # ModuleNotFoundError.
-curl_cffi>=0.7.0
+curl_cffi>=0.9.0
