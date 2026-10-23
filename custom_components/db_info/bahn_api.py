@@ -4,7 +4,6 @@ import logging
 import uuid
 
 import aiohttp
-from curl_cffi.requests import AsyncSession
 import curl_cffi
 
 from .Journey import Journey, parse_trip
@@ -660,6 +659,7 @@ def _score_result(result):
 
 
 async def _fetch_from_dbnav_api(
+        session,
         start_coordinates,
         destination_coordinates,
         time,
@@ -708,25 +708,24 @@ async def _fetch_from_dbnav_api(
     headers = _dbnav_headers(correlation_id)
 
     try:
-        async with AsyncSession() as session:
-            response = await session.post(
-                url,
-                headers=headers,
-                json=body,
-                timeout=_DBNAV_REQUEST_TIMEOUT,
-                impersonate=_DBNAV_IMPERSONATE,
+        response = await session.post(
+            url,
+            headers=headers,
+            json=body,
+            timeout=_DBNAV_REQUEST_TIMEOUT,
+            impersonate=_DBNAV_IMPERSONATE,
+        )
+        if response.status_code != 200:
+            # DB's own error responses (like the "452 OPS_BLOCKED" seen
+            # in testing - not a standard HTTP status) carry a body
+            # that explains what was wrong. Log it instead of
+            # discarding it via raise_for_status().
+            _LOGGER.warning(
+                "DB API '%s' (%s) returned status %s: %s",
+                name, url, response.status_code, response.text[:1000],
             )
-            if response.status_code != 200:
-                # DB's own error responses (like the "452 OPS_BLOCKED" seen
-                # in testing - not a standard HTTP status) carry a body
-                # that explains what was wrong. Log it instead of
-                # discarding it via raise_for_status().
-                _LOGGER.warning(
-                    "DB API '%s' (%s) returned status %s: %s",
-                    name, url, response.status_code, response.text[:1000],
-                )
-                return None
-            json_data = response.json()
+            return None
+        json_data = response.json()
     except curl_cffi.CurlError as err:
         _LOGGER.warning(
             "DB API '%s' (%s) not reachable: %s: %s",
@@ -799,7 +798,17 @@ async def get_trip_info(
         max_transfers=None,
         is_arrival=False,
         motis_state=None,
+        *,
+        http_session,
+        dbnav_session,
 ):
+    """Fetch the next journeys, DB Navigator first, then EFA + MOTIS.
+
+    http_session is an aiohttp ClientSession (HA's shared one) used for the
+    EFA/transitous.org fallback, dbnav_session a curl_cffi AsyncSession for
+    DB Navigator. Both are owned by the caller and reused across polls, so
+    that not every update costs a DNS lookup and a TLS handshake.
+    """
     if max_transfers is not None:
         # Normalize to int: config entries created/edited before the
         # max-transfers dropdown existed may still have a leftover float
@@ -834,6 +843,7 @@ async def get_trip_info(
     custom_time_key = time.isoformat() if custom_datetime else None
 
     dbnav_result = await _fetch_from_dbnav_api(
+        dbnav_session,
         start_coordinates,
         destination_coordinates,
         time,
@@ -935,12 +945,11 @@ async def get_trip_info(
     if motis_state is None:
         motis_state = {}
 
-    async with aiohttp.ClientSession() as session:
-        tasks = [_fetch_from_api(session, api, params) for api in applicable_efa_apis]
-        tasks.append(
-            _fetch_from_motis(session, motis_params, motis_cache_key, motis_state)
-        )
-        results = await asyncio.gather(*tasks)
+    tasks = [_fetch_from_api(http_session, api, params) for api in applicable_efa_apis]
+    tasks.append(
+        _fetch_from_motis(http_session, motis_params, motis_cache_key, motis_state)
+    )
+    results = await asyncio.gather(*tasks)
 
     valid_results = [result for result in results if result]
 

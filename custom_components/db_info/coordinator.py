@@ -8,6 +8,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.restore_state import async_get as async_get_restore_state
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -29,6 +30,7 @@ from .const import (
     USE_ARRIVAL_TIME_SUFFIX,
     USE_CUSTOM_TIME_SUFFIX,
 )
+from .sessions import async_get_dbnav_session
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -174,6 +176,8 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
                 max_transfers=max_transfers,
                 is_arrival=is_arrival,
                 motis_state=self._motis_state,
+                http_session=async_get_clientsession(self.hass),
+                dbnav_session=async_get_dbnav_session(self.hass),
             )
 
         except UpdateFailed:
