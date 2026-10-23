@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 
 import homeassistant.helpers.config_validation as cv
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .const import DOMAIN
 from .coordinator import DBInfoUpdateCoordinator
+from .sessions import async_close_dbnav_session
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +63,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a db_info config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    # The curl_cffi session is shared by all entries, so it is only closed
+    # once the last loaded entry goes away (a reload opens a new one).
+    if unload_ok and not any(
+        other.entry_id != entry.entry_id and other.state is ConfigEntryState.LOADED
+        for other in hass.config_entries.async_entries(DOMAIN)
+    ):
+        await async_close_dbnav_session(hass)
+
+    return unload_ok
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

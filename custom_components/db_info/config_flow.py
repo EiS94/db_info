@@ -3,6 +3,7 @@ import logging
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     EntityFilterSelectorConfig,
     EntitySelector,
@@ -30,6 +31,7 @@ from .const import (
     DOMAIN,
     TRANSPORT_TYPES_ALL,
 )
+from .sessions import async_get_dbnav_session
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -206,6 +208,8 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 connection_type=connection_type,
                 transport_types=transport_types,
                 max_transfers=max_transfers,
+                http_session=async_get_clientsession(self.hass),
+                dbnav_session=async_get_dbnav_session(self.hass),
             )
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("Error testing connection during config flow")

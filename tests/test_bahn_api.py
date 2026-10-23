@@ -1,6 +1,6 @@
 """Unit tests for time-zone handling and request building in bahn_api."""
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -172,6 +172,8 @@ async def test_requests_use_german_local_time_for_custom_time():
             (49.79, 9.95),
             (49.80, 9.96),
             custom_datetime=datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc),
+            http_session=MagicMock(),
+            dbnav_session=MagicMock(),
         )
 
     assert captured["efa"]["itdTime"] == "10:00"
