@@ -8,9 +8,9 @@ __pycache__/
 .ruff_cache/
 
 # Virtual environments
-.venv/
-venv/
-env/
+/.venv/
+/venv/
+/env/
 
 # Coverage reports
 .coverage
