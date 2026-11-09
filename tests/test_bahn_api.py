@@ -1,4 +1,5 @@
 """Unit tests for time-zone handling and request building in bahn_api."""
+import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -118,6 +119,26 @@ def test_dbnav_cancelled_departure_stop_is_reported(note):
 def test_dbnav_cancelled_connection_is_reported(note):
     journey = parse_trip(_dbnav_trip([], [note]))
     assert journey.to_json()["Problems"] == str(TrainProblem.CANCELED)
+
+
+def test_details_expose_train_direction():
+    journey = parse_trip(_dbnav_trip([]))
+    details = json.loads(journey.to_json()["Details"])
+    assert details[0]["Departure Direction"] == "München Hbf"
+
+
+def test_details_report_missing_direction_as_null():
+    trip = _dbnav_trip([])
+    del trip["verbindungsAbschnitte"][0]["richtung"]
+    details = json.loads(parse_trip(trip).to_json()["Details"])
+    assert details[0]["Departure Direction"] is None
+
+
+def test_details_are_valid_json_for_names_with_apostrophes():
+    trip = _dbnav_trip([])
+    trip["verbindungsAbschnitte"][0]["richtung"] = "'s-Hertogenbosch"
+    details = parse_trip(trip).to_json()["Details"]
+    assert json.loads(details)[0]["Departure Direction"] == "'s-Hertogenbosch"
 
 
 def test_dbnav_harmless_notes_are_not_problems():

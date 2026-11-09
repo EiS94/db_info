@@ -7,6 +7,7 @@ from .TrainProblem import (
     is_trip_cancelled_note,
 )
 
+import json
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ class Journey:
             "Arrival Time": format_time(self.get_arrival_time()),
             "Arrival Time Real": format_time(self.get_arrival_time_real()),
             "Problems": problems,
-            "Details": str(trains).replace("None", "null"),
+            "Details": json.dumps(trains, ensure_ascii=False),
         }
         return attributes
 

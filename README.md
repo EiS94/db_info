@@ -80,7 +80,7 @@ The sensor state is the departure time of the connection (real-time if available
 | `Name` | Lines used, e.g. `RE 1 -> S 2` |
 | `Transfers` | Number of transfers |
 | `Problems` | e.g. delay, cancellation, stop not served, or a transfer that can't be made |
-| `Details` | Per-segment details (times, platforms) |
+| `Details` | Per-segment details as a JSON string (train name, stops, times, platforms, `Departure Direction`; missing values are `null`) |
 | `Source` | Which data source served this connection |
 
 <img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/sensor_example.png" alt="Sensor Example" width="300"/>
