@@ -90,6 +90,7 @@ class Train:
             attributes = {
                 "Name": self.name,
                 "Departure": self.get_departure(),
+                "Departure Direction": self.direction,
                 "Departure Time": format_time(self.get_departure_time()),
                 "Departure Time Real": format_time(self.get_departure_time_real()),
                 "Departure Platform": self.get_departure_platform(),
