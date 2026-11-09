@@ -55,6 +55,12 @@ class Train:
             return "Fußweg"
         return self.stops[0].name
 
+    def get_departure_direction(self):
+        if self.direction is not None:
+            return self.direction
+        else:
+            return "Unknown"
+    
     def get_destination(self):
         if len(self.stops) == 0:
             return "Fußweg"
@@ -90,6 +96,7 @@ class Train:
             attributes = {
                 "Name": self.name,
                 "Departure": self.get_departure(),
+                "Departure Direction": self.get_departure_direction(),
                 "Departure Time": format_time(self.get_departure_time()),
                 "Departure Time Real": format_time(self.get_departure_time_real()),
                 "Departure Platform": self.get_departure_platform(),
