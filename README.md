@@ -13,7 +13,7 @@ This Home Assistant integration provides **five sensors per entry**, each showin
 
 For example, you can get connections that you often need (e.g., home → main station) as a sensor, but you can also always see dynamic connections (e.g., route from my current location to home).
 
-<img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/db-info-card.gif" alt="DB Info Card Preview" width="500"/>
+![DB Info Card in light and dark mode](https://raw.githubusercontent.com/EiS94/db-info-card/main/images/skin-db-compact.gif)
 
 > Covers public transport connections across Germany – regional and long-distance.
 
@@ -94,14 +94,26 @@ The sensor state is the departure time of the connection (real-time if available
 
 The easiest and most feature-rich way to display your connections is the dedicated [**DB Info Card**](https://github.com/EiS94/db-info-card) — a custom Lovelace card built specifically for this integration.
 
-<img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/db-info-card.gif" alt="DB Info Card Preview" width="500"/>
-
 **Features:**
-- Clean table view with real-time delay visualization
-- Expandable rows with per-segment details (stops, platforms, delays)
+- Three designs: a compact table, a layout modelled on bahn.de and a one-line variant of it
+- Real-time delays, cancellations and warnings such as "Anschluss gefährdet"
+- Expandable connections with per-segment details (stops, platforms, train direction, delays, transfers)
+- Follows your Home Assistant theme in light and dark mode
 - Built-in visual editor — no YAML required
 
 👉 **[Installation & Documentation](https://github.com/EiS94/db-info-card)**
+
+**`default`** – compact table:
+
+![DB Info Card, default skin](https://raw.githubusercontent.com/EiS94/db-info-card/main/images/skin-default.gif)
+
+**`db`** – modelled on the connection list of bahn.de, trains colour-coded by type:
+
+![DB Info Card, db skin](https://raw.githubusercontent.com/EiS94/db-info-card/main/images/skin-db.gif)
+
+**`db-compact`** – the `db` look with one line per connection:
+
+![DB Info Card, db-compact skin](https://raw.githubusercontent.com/EiS94/db-info-card/main/images/skin-db-compact.gif)
 
 ---
 
