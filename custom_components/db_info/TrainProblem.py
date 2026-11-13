@@ -8,6 +8,21 @@ class TrainProblem(Enum):
     CHANGE_NOT_ACCESSIBLE = 4
 
 
+# Most severe first. A journey reports a single problem, so a cancellation
+# must not be hidden behind a delay of an earlier train.
+_SEVERITY = (
+    TrainProblem.CANCELED,
+    TrainProblem.STOP_NOT_APPLICABLE,
+    TrainProblem.CHANGE_NOT_ACCESSIBLE,
+    TrainProblem.DELAY,
+)
+
+
+def most_severe(problems):
+    """Return the most severe of the given problems, or None if empty."""
+    return min(problems, key=_SEVERITY.index, default=None)
+
+
 # Realtime message fields of the DB Navigator API. The current (v9) mobile
 # schema uses "echtzeitNotizen" plus single "serviceNotiz"/"topNotiz"
 # objects; "priorisierteMeldungen" and "risNotizen" are from older schemas.

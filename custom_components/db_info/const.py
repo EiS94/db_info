@@ -31,10 +31,8 @@ ALL_TRANSPORT_TYPES = [
     "SBAHN", "UBAHN", "TRAM", "BUS", "SCHIFF", "AST/RUFBUS", "ICE", "IC/EC", "NAHVERKEHR", "SONSTIGE"
 ]
 
-# Default selections per preset
+# Default selection of the custom transport type step
 TRANSPORT_TYPES_ALL = ALL_TRANSPORT_TYPES
-TRANSPORT_TYPES_REGIONAL = ["SBAHN", "UBAHN", "TRAM", "BUS", "SCHIFF", "AST/RUFBUS", "NAHVERKEHR", "SONSTIGE"]
-TRANSPORT_TYPES_LONG_DISTANCE = ["ICE", "IC/EC"]
 
 # Entity suffixes
 DATETIME_ENTITY_SUFFIX = "_departure_time"

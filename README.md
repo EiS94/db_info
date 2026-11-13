@@ -30,7 +30,7 @@ Instead of relying on a single API, DB Info combines several public transport da
 
    Among the fallback results, the source whose next connection has **real-time data** wins; if several do, the one with the **shortest travel time** wins.
 
-If a source is unavailable or blocked, the others take over automatically — you won't notice unless you check the `Source` attribute on a sensor, which always shows which backend served that particular connection.
+If a source is unavailable or blocked, the others take over automatically — you won't notice unless you check the `Source` attribute on a sensor, which always shows which backend served that particular connection. Only if none of the sources can be reached do the sensors become unavailable; the `Refresh` button stays usable so you can retry right away.
 
 All times are reported in the time zone configured in Home Assistant, regardless of which source answered.
 
@@ -79,8 +79,8 @@ The sensor state is the departure time of the connection (real-time if available
 | `Duration` | Travel time, e.g. `1h 5min` |
 | `Name` | Lines used, e.g. `RE 1 -> S 2` |
 | `Transfers` | Number of transfers |
-| `Problems` | e.g. delay, cancellation, stop not served, or a transfer that can't be made |
-| `Details` | Per-segment details as a JSON string (train name, stops, times, platforms, `Departure Direction`; missing values are `null`) |
+| `Problems` | The most severe problem of the connection: cancellation, stop not served, a transfer that can't be made, or delay (in that order) |
+| `Details` | Per-segment details as a JSON string (train name, stops, times, platforms, `Departure Direction`, `Notes`; missing values are `null`). `Notes` is a list of the realtime messages for that train and the stops where you get on and off, e.g. `Verspätung aus vorheriger Fahrt` |
 | `Source` | Which data source served this connection |
 
 <img src="https://raw.githubusercontent.com/EiS94/db_info/main/images/sensor_example.png" alt="Sensor Example" width="300"/>

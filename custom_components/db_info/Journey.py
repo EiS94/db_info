@@ -5,6 +5,7 @@ from .TrainProblem import (
     collect_notes,
     has_cancelled_flag,
     is_trip_cancelled_note,
+    most_severe,
 )
 
 import json
@@ -40,25 +41,19 @@ class Journey:
                     train2 = self.trains[i + 2]
                 else:
                     continue
-            if (
-                    train1.stops[-1].arrival_time_real is not None
-                    and train2.stops[0].departure_time_real is not None
-            ):
-                change_time = (
-                        train2.stops[0].departure_time_real
-                        - train1.stops[-1].arrival_time_real
-                )
-            elif (
-                    train2.stops[0].departure_time_real is None
-                    and train1.stops[-1].arrival_time_real is not None
-            ):
-                change_time = (
-                        train2.stops[0].departure_time - train1.stops[-1].arrival_time_real
-                )
-            else:
-                change_time = (
-                        train2.stops[0].departure_time - train1.stops[-1].arrival_time
-                )
+            if not train1.stops or not train2.stops:
+                continue
+            # Real-time value where there is one, the schedule otherwise.
+            arrival = (
+                train1.stops[-1].arrival_time_real or train1.stops[-1].arrival_time
+            )
+            departure = (
+                train2.stops[0].departure_time_real or train2.stops[0].departure_time
+            )
+            if arrival is None or departure is None:
+                # Some sources leave out times; nothing to judge then.
+                continue
+            change_time = departure - arrival
             # total_seconds(), not .seconds: a missed connection gives a
             # negative timedelta, whose .seconds is close to 86400.
             if change_time.total_seconds() / 60 < 2:
@@ -102,15 +97,16 @@ class Journey:
             departure_time = self.get_departure_time_real()
         else:
             departure_time = self.get_departure_time()
+        if arrival_time is None or departure_time is None:
+            return None
         return arrival_time - departure_time
 
     def __str__(self):
         return f"{self.get_departure()} -> {self.get_destination()}, Dauer: {self.get_duration()}, Train-Changes: {self.get_number_of_train_changes()}"
 
     def to_json(self):
-        problems = None
-        if len(self.problems) > 0:
-            problems = str(next(iter(self.problems.values())))
+        problem = most_severe(self.problems.values())
+        problems = str(problem) if problem else None
         trains = []
         for train in self.trains:
             trains.append(train.to_json())
@@ -128,42 +124,6 @@ class Journey:
             "Details": json.dumps(trains, ensure_ascii=False),
         }
         return attributes
-
-    def to_plain_text(self):
-        return self.pretty_print()
-
-    def pretty_print(self):
-        output = ""
-        for train in self.trains:
-            if train.name == "Fußweg":
-                output += "       ║ Fußweg\n       ║\n"
-                continue
-            output += f"{parse_time(train.get_departure_time())}  ┬  {train.get_departure()}\n"
-            output += (
-                f"{parse_time(train.get_departure_time_real())}  │  {train.name}\n"
-            )
-            output += f"       │  {train.get_number_of_stops()} Haltestellen\n"
-            output += "       │\n"
-            output += f"{parse_time(train.get_arrival_time())}  │\n"
-            output += f"{parse_time(train.get_arrival_time_real())}  ┴  {train.get_destination()}\n"
-            output += "       ║\n"
-        return output[0:-9]
-
-
-def parse_time(time):
-    if time is None:
-        return "     "
-    return time.strftime("%H:%M")
-
-
-def detect_image_size(journey):
-    size = 0
-    for train in journey.trains:
-        if train.name == "Fußweg":
-            size += 40
-        else:
-            size += 330
-    return size + 20
 
 
 def parse_duration(time):

@@ -33,7 +33,8 @@ class Train:
             if self.stops[-1].problem == TrainProblem.STOP_NOT_APPLICABLE:
                 self.problems[self.stops[-1]] = TrainProblem.STOP_NOT_APPLICABLE
             if self.stops[-1].get_arrival_delay() > 20:
-                self.problems[self.name] = TrainProblem.DELAY
+                # setdefault: a delay must not replace a cancellation
+                self.problems.setdefault(self.name, TrainProblem.DELAY)
 
     def get_number_of_stops(self):
         return len(self.stops) - 2
@@ -98,9 +99,17 @@ class Train:
                 "Arrival Time": format_time(self.get_arrival_time()),
                 "Arrival Time Real": format_time(self.get_arrival_time_real()),
                 "Arrival Platform": self.get_arrival_platform(),
-                # "Duration": self.get_duration(),
+                "Notes": self.get_notes(),
             }
         return attributes
+
+    def get_notes(self):
+        """Realtime messages of this train and of the stops where the
+        traveller gets on and off, without duplicates."""
+        notes = list(self.notes)
+        if self.stops:
+            notes += self.stops[0].notes + self.stops[-1].notes
+        return list(dict.fromkeys(note for note in notes if note))
 
 
 def parse_train(json_data):

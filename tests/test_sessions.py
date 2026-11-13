@@ -66,6 +66,8 @@ async def test_polls_reuse_the_same_sessions(hass, mock_async_session):
 
     async def fake_motis(session, params, cache_key, motis_state):
         fallback_sessions.append(session)
+        # answered without a connection; all sources failing would raise
+        return {"name": "transitous.org", "journeys": []}
 
     coordinators = [
         DBInfoUpdateCoordinator(hass, _make_entry(hass)) for _ in range(2)

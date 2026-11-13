@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
 import uuid
@@ -17,6 +17,14 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class TripSourcesUnavailable(Exception):
+    """None of the trip-planning sources could be queried.
+
+    Distinct from "the sources answered, but know no connection", which
+    get_trip_info reports as an empty result.
+    """
 
 EFA_APIS = [
     {"name": "efa.de", "url": "https://www.efa.de/hit-efa/XML_TRIP_REQUEST2", "bounds": None},
@@ -56,14 +64,16 @@ _DBNAV_REQUEST_TIMEOUT = 10  # seconds
 _DBNAV_IMPERSONATE = "chrome131"
 
 
-def _dbnav_headers(correlation_id):
+def _dbnav_headers():
     return {
         "User-Agent": "DBNavigator/Android/25.18.2",
         "X-App-Version": "25.18.2",
         "X-Device-Os-Name": "Android",
         "X-Device-Os-Version": "32",
         "X-Device-Model": "Google Pixel 3a",
-        "Accept-Language": "en,de",
+        # German first: the realtime notes end up in the sensor attributes
+        # and are shown as they are by the (German) db-info-card.
+        "Accept-Language": "de,en",
         "Connection": "Keep-Alive",
         "Accept-Encoding": "gzip",
         "X-INSTANA-ANDROID": str(uuid.uuid4()),
@@ -500,6 +510,25 @@ def _parse_motis_itineraries(itineraries):
     return parsed
 
 
+def _parse_motis_safely(itineraries):
+    """Parse itineraries one by one, skipping those that fail.
+
+    An unexpectedly shaped itinerary must neither discard the others nor
+    raise out of the fallback gather(), which would fail the whole update
+    even though an EFA source answered fine.
+    """
+    parsed = []
+    for itinerary in itineraries:
+        try:
+            parsed.extend(_parse_motis_itineraries([itinerary]))
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.debug(
+                "Skipping unparsable MOTIS itinerary: %s: %s",
+                type(err).__name__, err,
+            )
+    return parsed
+
+
 async def _motis_get(session, url, params):
     """Low-level GET helper shared by /plan and /refresh-itinerary calls."""
     try:
@@ -560,7 +589,7 @@ async def _fetch_from_motis(session, params, cache_key, motis_state):
         itineraries = [r for r in responses if r]
 
         if itineraries:
-            parsed = _parse_motis_itineraries(itineraries)
+            parsed = _parse_motis_safely(itineraries)
             if parsed:
                 _update_motis_state(motis_state, cache_key, parsed)
                 _LOGGER.debug(
@@ -579,11 +608,11 @@ async def _fetch_from_motis(session, params, cache_key, motis_state):
     if data is None:
         return None
 
-    parsed = _parse_motis_itineraries(data.get("itineraries", []))
+    parsed = _parse_motis_safely(data.get("itineraries") or [])
     if not parsed:
         _LOGGER.debug("MOTIS API '%s' returned no journeys", name)
         motis_state.pop("itinerary_ids", None)
-        return None
+        return {"name": name, "journeys": []}
 
     _update_motis_state(motis_state, cache_key, parsed)
     return {"name": name, "journeys": [p[0] for p in parsed]}
@@ -591,8 +620,9 @@ async def _fetch_from_motis(session, params, cache_key, motis_state):
 
 async def _fetch_from_api(session, api, params):
     """Query a single EFA API and parse its response into Journey objects.
-    Returns a dict {"name", "url", "journeys"} on success, or None if the
-    API was unreachable, returned invalid data, or yielded no journeys.
+    Returns a dict {"name", "url", "journeys"} if the API answered (with an
+    empty journey list if it knows no connection), or None if it was
+    unreachable or returned invalid data.
     """
     name = api["name"]
     url = api["url"]
@@ -633,7 +663,6 @@ async def _fetch_from_api(session, api, params):
 
     if not journeys:
         _LOGGER.debug("EFA API '%s' returned no journeys", name)
-        return None
 
     return {"name": name, "url": url, "journeys": journeys}
 
@@ -655,7 +684,9 @@ def _score_result(result):
         first_journey.get_departure_time_real() is not None
         or first_journey.get_arrival_time_real() is not None
     )
-    return (0 if has_realtime else 1, first_journey.get_duration())
+    # Unknown duration (a source left out a time) sorts last.
+    duration = first_journey.get_duration()
+    return (0 if has_realtime else 1, duration if duration is not None else timedelta.max)
 
 
 async def _fetch_from_dbnav_api(
@@ -670,7 +701,6 @@ async def _fetch_from_dbnav_api(
 ):
     name = "app.services-bahn.de"
     url = DBNAV_API_URL
-    correlation_id = f"{uuid.uuid4()}_{uuid.uuid4()}"
 
     body = {
         "autonomeReservierung": False,
@@ -705,7 +735,7 @@ async def _fetch_from_dbnav_api(
     if max_transfers is not None:
         body["reiseHin"]["wunsch"]["maxUmstiege"] = max_transfers
 
-    headers = _dbnav_headers(correlation_id)
+    headers = _dbnav_headers()
 
     try:
         response = await session.post(
@@ -755,7 +785,6 @@ async def _fetch_from_dbnav_api(
 
     if not journeys:
         _LOGGER.debug("DB API '%s' returned no usable journeys", name)
-        return None
 
     return {"name": name, "url": url, "journeys": journeys}
 
@@ -852,7 +881,7 @@ async def get_trip_info(
         max_transfers,
         is_arrival,
     )
-    if dbnav_result:
+    if dbnav_result and dbnav_result["journeys"]:
         _LOGGER.debug(
             "Using primary source '%s' (DB Navigator), skipping EFA/transitous.org",
             dbnav_result["name"],
@@ -921,7 +950,9 @@ async def get_trip_info(
     motis_params = {
         "fromPlace": f"{lat_s},{lon_s}",
         "toPlace": f"{lat_d},{lon_d}",
-        "time": time.isoformat(),
+        # Whole seconds only: transitous.org misreads a time with fractional
+        # seconds and then answers with connections from days ago.
+        "time": time.isoformat(timespec="seconds"),
         "arriveBy": "true" if is_arrival else "false",
         "numItineraries": "5",
         "transitModes": ",".join(_build_motis_modes(connection_type, transport_types)),
@@ -951,15 +982,18 @@ async def get_trip_info(
     )
     results = await asyncio.gather(*tasks)
 
-    valid_results = [result for result in results if result]
+    valid_results = [result for result in results if result and result["journeys"]]
 
     if not valid_results:
-        _LOGGER.error(
-            "None of the %d fallback APIs (EFA + transitous.org) "
-            "returned usable data, and the primary DB Navigator source was "
-            "also empty",
-            total_sources,
-        )
+        if dbnav_result is None and all(result is None for result in results):
+            # Not a single source answered: an outage, not "no connection".
+            # Raising lets the coordinator mark the entities unavailable
+            # and log the outage once, instead of on every poll.
+            raise TripSourcesUnavailable(
+                f"Neither DB Navigator nor any of the {total_sources} fallback "
+                "APIs (EFA + transitous.org) could be queried"
+            )
+        _LOGGER.debug("The reachable sources know no connection for this query")
         return {"journeys": {}}
 
     best = min(valid_results, key=_score_result)

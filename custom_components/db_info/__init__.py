@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import homeassistant.helpers.config_validation as cv
@@ -30,10 +31,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         entries = hass.config_entries.async_entries(DOMAIN)
         _LOGGER.debug("Refreshing all db_info entries (%s found)", len(entries))
 
-        for entry in entries:
-            coordinator = getattr(entry, "runtime_data", None)
-            if coordinator is not None:
-                await coordinator.async_refresh()
+        # In parallel: one slow route must not hold up the others.
+        # async_refresh() never raises, it records failures on the coordinator.
+        coordinators = (getattr(entry, "runtime_data", None) for entry in entries)
+        await asyncio.gather(*(c.async_refresh() for c in coordinators if c is not None))
 
     hass.services.async_register(
         DOMAIN,

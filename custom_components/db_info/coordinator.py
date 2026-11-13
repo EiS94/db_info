@@ -13,7 +13,7 @@ from homeassistant.helpers.restore_state import async_get as async_get_restore_s
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .bahn_api import get_trip_info
+from .bahn_api import TripSourcesUnavailable, get_trip_info
 from .const import (
     CONF_CONNECTION_TYPE,
     CONF_DESTINATION,
@@ -182,6 +182,9 @@ class DBInfoUpdateCoordinator(DataUpdateCoordinator):
 
         except UpdateFailed:
             raise
+        except TripSourcesUnavailable as err:
+            # Expected during outages; the coordinator logs it once.
+            raise UpdateFailed(str(err)) from err
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.exception("Error updating db_info data")
             raise UpdateFailed(err) from err

@@ -76,6 +76,67 @@ def test_missed_connection_is_reported():
     assert TrainProblem.CHANGE_NOT_ACCESSIBLE in journey.problems.values()
 
 
+def _train(name, start, minutes=30, arr_delay=None, cancelled=False):
+    arr = start + timedelta(minutes=minutes)
+    arr_real = arr + timedelta(minutes=arr_delay) if arr_delay is not None else None
+    stops = [_stop("A", dep=start), _stop("B", arr=arr, arr_real=arr_real)]
+    return Train(name, None, stops, [], cancelled)
+
+
+def test_cancellation_outranks_delay_of_earlier_train():
+    t = datetime(2026, 7, 28, 10, 0, tzinfo=BERLIN)
+    journey = Journey([
+        _train("RE 1", t, arr_delay=25),
+        _train("RE 2", t + timedelta(hours=2), cancelled=True),
+    ])
+    assert journey.to_json()["Problems"] == str(TrainProblem.CANCELED)
+
+
+def test_delay_does_not_replace_cancellation_of_same_train():
+    t = datetime(2026, 7, 28, 10, 0, tzinfo=BERLIN)
+    train = _train("RE 1", t, arr_delay=25, cancelled=True)
+    assert train.problems["RE 1"] == TrainProblem.CANCELED
+
+
+def test_late_connecting_train_keeps_transfer_reachable():
+    """Only the departure has real-time data: it must still be used."""
+    t = datetime(2026, 7, 28, 10, 0, tzinfo=BERLIN)
+    first = _train("RE 1", t)  # arrives 10:30, no real-time data
+    second = Train(
+        "RE 2", None,
+        [_stop("B", dep=t + timedelta(minutes=31), dep_real=t + timedelta(minutes=40)),
+         _stop("C", arr=t + timedelta(minutes=60))],
+        [],
+    )
+    assert not Journey([first, second]).problems
+
+
+def test_missing_times_do_not_break_a_journey():
+    t = datetime(2026, 7, 28, 10, 0, tzinfo=BERLIN)
+    first = Train("RE 1", None, [_stop("A", dep=t), _stop("B")], [])
+    second = Train("RE 2", None, [_stop("B"), _stop("C")], [])
+    journey = Journey([first, second])
+    assert journey.get_duration() is None
+    assert journey.to_json()["Duration"] == ""
+    assert bahn_api._score_result({"journeys": [journey]}) == (1, timedelta.max)
+
+
+def test_broken_motis_itinerary_does_not_discard_the_others():
+    good = {
+        "id": "x",
+        "startTime": "2026-07-28T08:00:00Z",
+        "legs": [{
+            "mode": "REGIONAL_RAIL",
+            "displayName": "RE 1",
+            "from": {"name": "A", "scheduledDeparture": "2026-07-28T08:00:00Z"},
+            "to": {"name": "B", "scheduledArrival": "2026-07-28T08:30:00Z"},
+        }],
+    }
+    broken = {"legs": [{"mode": "BUS", "intermediateStops": 5}]}
+    parsed = bahn_api._parse_motis_safely([broken, good])
+    assert [p[1] for p in parsed] == ["x"]
+
+
 def _dbnav_trip(first_stop_notes, trip_notes=()):
     """Minimal DB Navigator v9 connection (Rohrbach(Ilm) -> München Hbf)."""
     return {
@@ -176,6 +237,60 @@ def test_custom_efa_mot_params_are_separate_keys():
     }
 
 
+def test_details_expose_notes_without_duplicates():
+    note = {"text": "Halt entfällt"}
+    details = json.loads(parse_trip(_dbnav_trip([note, note])).to_json()["Details"])
+    assert details[0]["Notes"] == ["Halt entfällt"]
+
+
+def test_details_report_no_notes_as_empty_list():
+    details = json.loads(parse_trip(_dbnav_trip([])).to_json()["Details"])
+    assert details[0]["Notes"] == []
+
+
+# A source that answered, but knows no connection
+_EMPTY = {"name": "x", "journeys": []}
+
+
+async def _get_trip_info(dbnav, efa, motis):
+    with patch.object(bahn_api, "_fetch_from_dbnav_api", AsyncMock(return_value=dbnav)), \
+            patch.object(bahn_api, "_fetch_from_api", AsyncMock(return_value=efa)), \
+            patch.object(bahn_api, "_fetch_from_motis", AsyncMock(return_value=motis)):
+        return await bahn_api.get_trip_info(
+            (49.79, 9.95), (49.80, 9.96),
+            http_session=MagicMock(), dbnav_session=MagicMock(),
+        )
+
+
+async def test_outage_of_all_sources_raises():
+    with pytest.raises(bahn_api.TripSourcesUnavailable):
+        await _get_trip_info(None, None, None)
+
+
+@pytest.mark.parametrize("answers", [
+    (_EMPTY, None, None),
+    (None, _EMPTY, None),
+    (None, None, _EMPTY),
+])
+async def test_no_connection_is_an_empty_result_not_an_outage(answers):
+    assert await _get_trip_info(*answers) == {"journeys": {}}
+
+
+async def test_motis_request_time_has_no_fractional_seconds():
+    """transitous.org answers with connections from days ago otherwise."""
+    motis = AsyncMock(return_value=_EMPTY)
+    with patch.object(bahn_api, "_fetch_from_dbnav_api", AsyncMock(return_value=None)), \
+            patch.object(bahn_api, "_fetch_from_api", AsyncMock(return_value=None)), \
+            patch.object(bahn_api, "_fetch_from_motis", motis):
+        await bahn_api.get_trip_info(
+            (49.79, 9.95), (49.80, 9.96),
+            http_session=MagicMock(), dbnav_session=MagicMock(),
+        )
+    sent = motis.await_args.args[1]["time"]
+    assert "." not in sent
+    assert datetime.fromisoformat(sent).tzinfo is not None
+
+
 async def test_requests_use_german_local_time_for_custom_time():
     """A custom time stored in UTC must reach the offset-less EFA request
     as German local time."""
@@ -187,8 +302,7 @@ async def test_requests_use_german_local_time_for_custom_time():
 
     with patch.object(bahn_api, "_fetch_from_dbnav_api", AsyncMock(return_value=None)), \
             patch.object(bahn_api, "_fetch_from_api", fake_efa), \
-\
-            patch.object(bahn_api, "_fetch_from_motis", AsyncMock(return_value=None)):
+            patch.object(bahn_api, "_fetch_from_motis", AsyncMock(return_value=_EMPTY)):
         await bahn_api.get_trip_info(
             (49.79, 9.95),
             (49.80, 9.96),

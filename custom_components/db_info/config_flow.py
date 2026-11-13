@@ -15,9 +15,8 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from .bahn_api import get_trip_info
+from .bahn_api import TripSourcesUnavailable, get_trip_info
 from .const import (
-    ALL_TRANSPORT_TYPES,
     CONF_CONNECTION_TYPE,
     CONF_DESTINATION,
     CONF_MAX_TRANSFERS,
@@ -211,6 +210,9 @@ class DBInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 http_session=async_get_clientsession(self.hass),
                 dbnav_session=async_get_dbnav_session(self.hass),
             )
+        except TripSourcesUnavailable as err:
+            _LOGGER.warning("Connection test failed: %s", err)
+            return False
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("Error testing connection during config flow")
             return False

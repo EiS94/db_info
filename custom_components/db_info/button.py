@@ -23,7 +23,9 @@ class DBRefreshButton(CoordinatorEntity, ButtonEntity):
 
     @property
     def available(self) -> bool:
-        return self.coordinator.last_update_success
+        # Always pressable: after a failed update is exactly when a manual
+        # retry is wanted (CoordinatorEntity would report unavailable then).
+        return True
 
     async def async_press(self) -> None:
         await self.coordinator.async_refresh()
