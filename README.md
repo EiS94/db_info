@@ -13,7 +13,7 @@ This Home Assistant integration provides **five sensors per entry**, each showin
 
 For example, you can get connections that you often need (e.g., home → main station) as a sensor, but you can also always see dynamic connections (e.g., route from my current location to home).
 
-![DB Info Card in light and dark mode](https://raw.githubusercontent.com/EiS94/db-info-card/main/images/skin-db-compact.gif)
+![DB Info Card](https://raw.githubusercontent.com/EiS94/db-info-card/main/images/skin-db-compact.gif)
 
 > Covers public transport connections across Germany – regional and long-distance.
 
@@ -98,7 +98,7 @@ The easiest and most feature-rich way to display your connections is the dedicat
 - Three designs: a compact table, a layout modelled on bahn.de and a one-line variant of it
 - Real-time delays, cancellations and warnings such as "Anschluss gefährdet"
 - Expandable connections with per-segment details (stops, platforms, train direction, delays, transfers)
-- Follows your Home Assistant theme in light and dark mode
+- Light and dark mode, switching automatically with your Home Assistant theme (with theme mode *Auto* also with your device's system setting)
 - Built-in visual editor — no YAML required
 
 👉 **[Installation & Documentation](https://github.com/EiS94/db-info-card)**
